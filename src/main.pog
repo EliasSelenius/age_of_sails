@@ -1,0 +1,251 @@
+
+include "../grax/grax.pog";
+
+include "kmeans.pog";
+
+// ..\plang\bin\plang.exe src\main.pog cflags -lglfw3dll
+
+/*
+
+
+porting 'c_opengl' (the boat game) to plang:
+    <Done> - meshes
+    <Done> - OBJ importing
+    <Done> - UBO
+    <Done> - shader include directive
+    <Done> - framebuffers
+    <Done> - deffered rendering system
+    - PBR
+    <Done> - camera math
+    - physics
+    - water rendering (gerstner waves)
+    - water rendering (semi transparancy)
+    <Done> - gizmo point rendering
+    - skybox
+
+*/
+
+
+void gizmo_draw_obj(OBJ_Data obj, vec3 offset) {
+    for 0 .. list_length(obj.vertices) {
+        gizmo_point(add(obj.vertices[it], offset));
+    }
+}
+
+void main() {
+    grax_init();
+    gizmo_setup();
+
+    loadassets();
+    model_ubo = get_ubo("Instances");
+
+    cam.transform.position = { 0, 0, -10 };
+
+
+    spawn_entity(*pyramid, *test_color_texture);
+    spawn_entity(*firstTownscaper, *town_texture);
+    spawn_entity(*Boate, *white_texture);
+
+    {
+        uint32 w = main_window_width as uint32;
+        uint32 h = main_window_height as uint32;
+        TextureFormat[] g_attachments = {
+            .rgb16f, // pos
+            .rgb16f, // normal
+            .rgb8    // albedo
+            // TODO: PBR properties
+        };
+        g_buffer = create_framebuffer(w, h, g_attachments, true);
+
+        TextureFormat[] hdr_attachments = { .rgb16f };
+        hdr_buffer = create_framebuffer(w, h, hdr_attachments, false);
+
+        g_shader = load_shader("../grax/shaders/gpass.glsl");
+        hdr2ldr_shader = load_shader("../grax/shaders/hdr2ldr.glsl");
+        dirlight_shader = load_shader("../grax/shaders/dirlight.glsl");
+    }
+
+
+    // glViewport(0, 0, main_window_width as int32, main_window_height as int32);
+    // glClear(GL_COLOR_BUFFER_BIT);
+
+    {
+        glGenVertexArrays(1, *dummy_vao);
+    }
+
+
+    while grax_loop() {
+        camera_fly_control(*cam);
+
+        update_matrices(*cam);
+        update_buffer(camera_ubo.buffer_id, 2 * sizeof mat4, *cam.view);
+
+        if mouse(Left_Mouse) {
+            vec2 text_pos = screen2ndc(mouse_x as float32, mouse_y as float32);
+            text_pos.x /= main_window_aspect;
+            draw_text(text_pos, 0.05, "Click!", White);
+        }
+
+        // drawframe();
+        deffered_renderer();
+
+        // gizmo_sphere({} as vec3, 40);
+        gizmo_dispatch();
+    }
+}
+
+Camera cam = camera(90 * deg2rad, 0.1, 1000);
+UBO* model_ubo;
+
+GLuint dummy_vao;
+
+Shader water_shader;
+Shader g_shader;
+Shader hdr2ldr_shader;
+Shader dirlight_shader;
+
+Framebuffer g_buffer;
+Framebuffer hdr_buffer;
+
+Texture2D test_color_texture;
+Texture2D town_texture;
+
+DrawBuffers pyramid;
+DrawBuffers Boate;
+DrawBuffers firstTownscaper;
+DrawBuffers plane;
+
+
+void loadassets() {
+    DrawBuffers load_drawable(char* name) {
+        OBJ_Data obj = load_obj(name);
+        // Mesh mesh = obj_to_flatshaded_mesh(obj);
+        Mesh mesh = obj_to_mesh(obj);
+        free_obj(obj);
+        gen_normals(mesh);
+        DrawBuffers db = create_draw_buffers(mesh);
+
+        list_delete(mesh.vertices);
+        free(mesh.indices);
+        return db;
+    }
+
+    pyramid = load_drawable("../shared_assets/pyramid.obj");
+    Boate = load_drawable("../shared_assets/Boate_Smooth.obj");
+
+    {
+        OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
+        Mesh mesh = obj_to_mesh(obj);
+
+        let windows = obj.objects[4];
+        flip_indices(mesh, windows.indices_start, windows.indices_length);
+        gen_normals(mesh); // generating normals here to fix wrong normals for windows, this gives us a flatshaded look until we fix obj_to_mesh()
+
+        firstTownscaper = create_draw_buffers(mesh);
+        free_obj(obj);
+        list_delete(mesh.vertices);
+        free(mesh.indices);
+    }
+
+    let plane_mesh = gen_plane(100);
+    plane = create_draw_buffers(plane_mesh);
+    free(plane_mesh.vertices);
+    free(plane_mesh.indices);
+
+    test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
+    town_texture = load_texture2D("../shared_assets/TownColor.bmp");
+
+
+    water_shader = load_shader("shaders/water.glsl");
+
+}
+
+void deffered_renderer() {
+    bind(g_buffer);
+    use(*g_shader);
+    enable_depth_test();
+    disable_blending();
+    clear_color();
+    clear_depth();
+
+    // render geometry
+    render_entities();
+
+    // blit depth buffer
+    // blit(hdr_buffer, g_buffer, GL_DEPTH_BUFFER_BIT, TextureFilter.nearest);
+
+    void draw_screen_quad() {
+        glBindVertexArray(dummy_vao); // I don't know dude....
+        glDrawArrays(GL_TRIANGLES, 0, 6); // this call causes GL_INVALID_OPERATION without the dummy_vao
+    }
+
+    bind(hdr_buffer);
+    use(*dirlight_shader);
+    disable_depth_test();
+    enable_additive_blending();
+    clear_color();
+    for 0 .. g_buffer.attachments.length  bind_texture2D(g_buffer.attachments[it].gl_handle, it);
+
+    // render light volumes
+    draw_screen_quad();
+
+
+    bind_default_framebuffer();
+    use(*hdr2ldr_shader);
+    disable_depth_test();
+    disable_blending();
+    bind_texture2D(hdr_buffer.attachments[0].gl_handle, 0);
+    draw_screen_quad();
+}
+
+struct Entity {
+    Texture2D* texture;
+    DrawBuffers* db;
+    Transform tr;
+}
+
+Entity* entities = list_create(sizeof Entity);
+
+Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
+    Entity e = {};
+    e.texture = tex;
+    e.db = db;
+    e.tr = transform_default();
+
+    return list_add(*entities, *e);
+}
+
+void render(Entity* e) {
+    mat4 model = to_matrix(e.tr);
+    update_buffer(model_ubo.buffer_id, sizeof mat4, *model);
+    bind(@e.texture, 0);
+    draw_elements(@e.db);
+}
+
+void render_entities() {
+    for 0 .. list_length(entities) {
+        render(*entities[it]);
+    }
+}
+
+void drawframe() {
+
+    use(*default3d_shader);
+    disable_blending();
+    enable_depth_test();
+
+    static int32 gizmo_delay = 0;
+    for 0 .. list_length(entities) {
+        render(*entities[it]);
+
+        if gizmo_delay   gizmo_delay--;
+        else if gizmo_transform(*entities[it].tr) gizmo_delay = 60;
+    }
+
+
+    mat4 model = mat4_identity();
+    update_buffer(model_ubo.buffer_id, sizeof mat4, *model);
+    use(*water_shader);
+    // glBindTexture(GL_TEXTURE_2D, fbo.attachments[0].gl_handle);
+    draw_elements(plane);
+}

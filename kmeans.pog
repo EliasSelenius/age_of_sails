@@ -1,0 +1,106 @@
+
+
+struct KmeansObservation {
+    vec3 pos;
+    uint32 cluster_id;
+}
+
+struct KmeansCluster {
+    vec3 pos;
+    uint32 observation_count;
+    Color color;
+
+}
+
+void cluster_assignment(KmeansCluster* clusters, KmeansObservation* obs) {
+    let obs_count = list_length(obs);
+    let cluster_count = list_length(clusters);
+
+    for o : 0 .. obs_count {
+        float32 min = 100000;
+        for c : 0 .. cluster_count {
+            let sqlen = sqlength(sub(obs[o].pos, clusters[c].pos));
+            if sqlen < min {
+                min = sqlen;
+                obs[o].cluster_id = c as uint32;
+            }
+        }
+    }
+}
+
+void cluster_calc_means(KmeansCluster* clusters, KmeansObservation* obs) {
+    let obs_count = list_length(obs);
+    let cluster_count = list_length(clusters);
+
+    for 0 .. cluster_count {
+        clusters[it].pos = {};
+        clusters[it].observation_count = 0;
+    }
+
+    for 0 .. obs_count {
+        KmeansCluster* clust = *clusters[obs[it].cluster_id];
+        clust.pos = add(clust.pos, obs[it].pos);
+        clust.observation_count++;
+    }
+
+    for 0 .. cluster_count {
+        clusters[it].pos = mul(clusters[it].pos, 1.0 / clusters[it].observation_count as float32);
+    }
+}
+
+void generate_sphere(KmeansObservation** res, vec3 offset) {
+
+    int32 seed = 0;
+
+    for 0 .. 100 {
+        KmeansObservation obs = {};
+        float32 alpha = random(seed++) * Tau;
+        float32 theta = random(seed++) * Tau;
+        float32 mag = random(seed++) * 5;
+        obs.pos = {
+            mag * cosf(alpha) * cosf(theta),
+            mag * sinf(alpha) * cosf(theta),
+            mag * sinf(theta)
+        };
+
+        obs.pos = add(obs.pos, offset);
+
+        list_add(res, *obs);
+    }
+}
+
+KmeansCluster* generate_clusters(uint32 k) {
+
+    static Color[] colors = {
+        Red,
+        Green,
+        Blue,
+        Yellow,
+        Cyan,
+        Purple
+    };
+
+    int32 seed = 0;
+
+    KmeansCluster* res = list_create(sizeof KmeansCluster);
+    for 0 .. k {
+        KmeansCluster c;
+        c.color = colors[it % colors.length];
+        c.pos = {random(seed++)*10, random(seed++)*10, random(seed++)*10};
+        list_add(*res, *c);
+    }
+    return res;
+}
+
+
+void draw_kmeans_data(KmeansCluster* clusters, KmeansObservation* obs) {
+    let obs_count = list_length(obs);
+    for o : 0 .. obs_count {
+        gizmo_point(obs[o].pos, clusters[obs[o].cluster_id].color);
+    }
+
+    let clusters_count = list_length(clusters);
+    for 0 .. clusters_count {
+        gizmo_point(clusters[it].pos, White);
+    }
+}
