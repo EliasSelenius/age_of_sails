@@ -18,8 +18,8 @@ porting 'c_opengl' (the boat game) to plang:
     - PBR
     <Done> - camera math
     - physics
-    - water rendering (gerstner waves)
-    - water rendering (semi transparancy)
+    <Done> - water rendering (gerstner waves)
+    <Done> - water rendering (semi transparancy)
     <Done> - gizmo point rendering
     - skybox
 
@@ -43,8 +43,14 @@ void main() {
 
 
     spawn_entity(*pyramid, *test_color_texture);
-    spawn_entity(*firstTownscaper, *town_texture);
-    spawn_entity(*Boate, *white_texture);
+    spawn_entity(*firstTownscaper, *town_texture).tr.position = { 0, -5, 0 };
+    Entity* boat = spawn_entity(*Boate, *test_color_texture);
+    boat.tr.position = {-20, 0, 0};
+
+    for 1 .. 100 {
+        Entity* e = spawn_entity(*Boate, *white_texture);
+        e.tr.position = {0, 0, it * 50};
+    }
 
     {
         uint32 w = main_window_width as uint32;
@@ -58,7 +64,9 @@ void main() {
         g_buffer = create_framebuffer(w, h, g_attachments, true);
 
         TextureFormat[] hdr_attachments = { .rgb16f };
-        hdr_buffer = create_framebuffer(w, h, hdr_attachments, false);
+        hdr_buffer = create_framebuffer(w, h, hdr_attachments, true);
+
+        // TODO: can hdr_buffer and g_buffer share same depth renderbuffer attachment?
 
         g_shader = load_shader("../grax/shaders/gpass.glsl");
         hdr2ldr_shader = load_shader("../grax/shaders/hdr2ldr.glsl");
@@ -86,8 +94,7 @@ void main() {
             draw_text(text_pos, 0.05, "Click!", White);
         }
 
-        // drawframe();
-        deffered_renderer();
+        drawframe();
 
         // gizmo_sphere({} as vec3, 40);
         gizmo_dispatch();
@@ -109,6 +116,7 @@ Framebuffer hdr_buffer;
 
 Texture2D test_color_texture;
 Texture2D town_texture;
+Texture2D water_texture;
 
 DrawBuffers pyramid;
 DrawBuffers Boate;
@@ -147,32 +155,33 @@ void loadassets() {
         free(mesh.indices);
     }
 
-    let plane_mesh = gen_plane(100);
+    let plane_mesh = gen_plane(100, 10);
     plane = create_draw_buffers(plane_mesh);
     free(plane_mesh.vertices);
     free(plane_mesh.indices);
 
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
     town_texture = load_texture2D("../shared_assets/TownColor.bmp");
+    water_texture = load_texture2D("../shared_assets/Water.bmp");
 
 
     water_shader = load_shader("shaders/water.glsl");
 
 }
 
-void deffered_renderer() {
+void drawframe() {
     bind(g_buffer);
     use(*g_shader);
     enable_depth_test();
     disable_blending();
-    clear_color();
+    clear_color(Black);
     clear_depth();
 
     // render geometry
     render_entities();
 
     // blit depth buffer
-    // blit(hdr_buffer, g_buffer, GL_DEPTH_BUFFER_BIT, TextureFilter.nearest);
+    blit(hdr_buffer, g_buffer, GL_DEPTH_BUFFER_BIT, TextureFilter.nearest);
 
     void draw_screen_quad() {
         glBindVertexArray(dummy_vao); // I don't know dude....
@@ -183,11 +192,18 @@ void deffered_renderer() {
     use(*dirlight_shader);
     disable_depth_test();
     enable_additive_blending();
-    clear_color();
-    for 0 .. g_buffer.attachments.length  bind_texture2D(g_buffer.attachments[it].gl_handle, it);
+    clear_color(Black);
+    for 0 .. g_buffer.attachments.length  bind_texture2D(g_buffer.attachments[it].gl_handle, it as uint32);
 
     // render light volumes
     draw_screen_quad();
+
+
+    use(*water_shader);
+    enable_depth_test();
+    enable_alpha_blending();
+    bind(water_texture, 1);
+    draw_elements(plane);
 
 
     bind_default_framebuffer();
@@ -226,26 +242,4 @@ void render_entities() {
     for 0 .. list_length(entities) {
         render(*entities[it]);
     }
-}
-
-void drawframe() {
-
-    use(*default3d_shader);
-    disable_blending();
-    enable_depth_test();
-
-    static int32 gizmo_delay = 0;
-    for 0 .. list_length(entities) {
-        render(*entities[it]);
-
-        if gizmo_delay   gizmo_delay--;
-        else if gizmo_transform(*entities[it].tr) gizmo_delay = 60;
-    }
-
-
-    mat4 model = mat4_identity();
-    update_buffer(model_ubo.buffer_id, sizeof mat4, *model);
-    use(*water_shader);
-    // glBindTexture(GL_TEXTURE_2D, fbo.attachments[0].gl_handle);
-    draw_elements(plane);
 }

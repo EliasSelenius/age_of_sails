@@ -898,11 +898,10 @@ struct Camera {
 static void gizmo_draw_obj(OBJ_Data obj, vec3 offset);
 void __main();
 static void loadassets();
-static void deffered_renderer();
+static void drawframe();
 static Entity* spawn_entity(DrawBuffers* db, Texture2D* tex);
 static void render(Entity* e);
 static void render_entities();
-static void drawframe();
 int32 fopen_s(FILE** stream, char* filename, char* mode);
 int32 fclose(FILE* stream);
 int32 fseek(FILE* stream, int32 offset, int32 origin);
@@ -1101,10 +1100,12 @@ static void enable_additive_blending();
 static void disable_blending();
 static void enable_depth_test();
 static void disable_depth_test();
-static void set_clear_color(Color color);
+static void set_clear_color1(float32 r, float32 g, float32 b, float32 a);
+static void set_clear_color2(Color color);
 static void set_clear_depth(float64 depth);
 static void clear_color1();
-static void clear_color2(Color color);
+static void clear_color2(float32 r, float32 g, float32 b, float32 a);
+static void clear_color3(Color color);
 static void clear_depth1();
 static void clear_depth2(float64 depth);
 static void use(Shader* s);
@@ -1248,7 +1249,8 @@ static mat4 to_matrix(Transform t);
 static Transform transform_default();
 static void rotate1(Transform* tr, quat q);
 static void rotate2(Transform* tr, vec3 axis, float32 angle);
-static void translate(Transform* tr, vec3 t);
+static void translate1(Transform* tr, vec3 t);
+static void translate2(Transform* tr, float32 x, float32 y, float32 z);
 static void look_at1(Transform* tr, vec3 target, vec3 up);
 static Transform2D lerp6(float32 t, Transform2D a, Transform2D b);
 static vec2 right(Transform2D t);
@@ -1289,7 +1291,8 @@ static void draw_elements2(DrawBuffers db, uint32 instanceCount);
 static void gen_normals(Mesh mesh);
 static void flip_indices1(Mesh mesh);
 static void flip_indices2(Mesh mesh, uint32 base, uint32 len);
-static Mesh gen_plane(uint32 size);
+static Mesh gen_plane1(uint32 size);
+static Mesh gen_plane2(uint32 size, float32 uv_scale);
 static void gizmo_setup();
 static void gizmo_dispatch();
 static void gizmo_point1(vec3 pos);
@@ -1321,7 +1324,7 @@ static void bind_default_framebuffer();
 static void blit1(Framebuffer dst, Framebuffer src, ivec2 dst_p1, ivec2 dst_p2, ivec2 src_p1, ivec2 src_p2, GLbitfield mask, TextureFilter filter);
 static void blit2(Framebuffer dst, Framebuffer src, ivec2 p1, ivec2 p2, GLbitfield mask, TextureFilter filter);
 static void blit3(Framebuffer dst, Framebuffer src, GLbitfield mask, TextureFilter filter);
-static void resize(Framebuffer fr, uint32 w, uint32 h);
+static void resize(Framebuffer* fr, uint32 w, uint32 h);
 static void delete(Framebuffer fr);
 static Texture2D load_texture2D(char* name);
 static uint32 gen_opengl_texture2D(uint32 width, uint32 height, TextureFilter filter, TextureWrapMode wrap, TextureFormat internal_format);
@@ -1350,6 +1353,7 @@ static Framebuffer g_buffer;
 static Framebuffer hdr_buffer;
 static Texture2D test_color_texture;
 static Texture2D town_texture;
+static Texture2D water_texture;
 static DrawBuffers pyramid;
 static DrawBuffers Boate;
 static DrawBuffers firstTownscaper;
@@ -1918,7 +1922,6 @@ static Shader gizmo_points_shader;
 static Camera cam;
 static Entity* entities;
 static UBO** uniform_buffer_objects;
-static int32 gizmo_delay = 0;
 static char* num_str;
 static bool prev_state = 0;
 static Array colors = (Array) { .length = 6, .data = (Color[]){(Color)(Color) {255, 0, 0, 255}, (Color)(Color) {0, 255, 0, 255}, (Color)(Color) {0, 0, 255, 255}, (Color)(Color) {255, 255, 0, 255}, (Color)(Color) {0, 255, 255, 255}, (Color)(Color) {255, 0, 255, 255}}};
@@ -1936,15 +1939,20 @@ void __main() {
     model_ubo = get_ubo1("Instances");
     cam.transform.position = (vec3) {0, 0, -10};
     spawn_entity(&pyramid, &test_color_texture);
-    spawn_entity(&firstTownscaper, &town_texture);
-    spawn_entity(&Boate, &white_texture);
+    spawn_entity(&firstTownscaper, &town_texture)->tr.position = (vec3) {0, -5, 0};
+    Entity* boat = spawn_entity(&Boate, &test_color_texture);
+    boat->tr.position = (vec3) {-20, 0, 0};
+    for (int32 it = 1; it < 100; it++) {
+        Entity* e = spawn_entity(&Boate, &white_texture);
+        e->tr.position = (vec3) {0, 0, (it * 50)};
+    }
     {
         uint32 w = (uint32)main_window_width;
         uint32 h = (uint32)main_window_height;
         Array g_attachments = (Array) { .length = 3, .data = (TextureFormat[]){0, 0, 2}};
         g_buffer = create_framebuffer(w, h, g_attachments, 1);
         Array hdr_attachments = (Array) { .length = 1, .data = (TextureFormat[]){0}};
-        hdr_buffer = create_framebuffer(w, h, hdr_attachments, 0);
+        hdr_buffer = create_framebuffer(w, h, hdr_attachments, 1);
         g_shader = load_shader1("../grax/shaders/gpass.glsl");
         hdr2ldr_shader = load_shader1("../grax/shaders/hdr2ldr.glsl");
         dirlight_shader = load_shader1("../grax/shaders/dirlight.glsl");
@@ -1961,7 +1969,7 @@ void __main() {
             text_pos.x /= main_window_aspect;
             draw_text2(text_pos, 0.050000, "Click!", (Color)(Color) {255, 255, 255, 255});
         }
-        deffered_renderer();
+        drawframe();
         gizmo_dispatch();
     }
 }
@@ -1990,34 +1998,41 @@ static void loadassets() {
         list_delete(mesh.vertices);
         free(mesh.indices);
     }
-    Mesh plane_mesh = gen_plane(100);
+    Mesh plane_mesh = gen_plane2(100, 10);
     plane = create_draw_buffers1(plane_mesh);
     free(plane_mesh.vertices);
     free(plane_mesh.indices);
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
     town_texture = load_texture2D("../shared_assets/TownColor.bmp");
+    water_texture = load_texture2D("../shared_assets/Water.bmp");
     water_shader = load_shader1("shaders/water.glsl");
 }
 static void draw_screen_quad() {
     glBindVertexArray(dummy_vao);
     glDrawArrays(4, 0, 6);
 }
-static void deffered_renderer() {
+static void drawframe() {
     bind1(g_buffer);
     use(&g_shader);
     enable_depth_test();
     disable_blending();
-    clear_color1();
+    clear_color3((Color)(Color) {0, 0, 0, 255});
     clear_depth1();
     render_entities();
+    blit3(hdr_buffer, g_buffer, 256, 0);
     /* local procedure */;
     bind1(hdr_buffer);
     use(&dirlight_shader);
     disable_depth_test();
     enable_additive_blending();
-    clear_color1();
-    for (int32 it = 0; it < g_buffer.attachments.length; it++) bind_texture2D(((FramebufferAttachment*)g_buffer.attachments.data)[it].gl_handle, it);
+    clear_color3((Color)(Color) {0, 0, 0, 255});
+    for (int32 it = 0; it < g_buffer.attachments.length; it++) bind_texture2D(((FramebufferAttachment*)g_buffer.attachments.data)[it].gl_handle, (uint32)it);
     draw_screen_quad();
+    use(&water_shader);
+    enable_depth_test();
+    enable_alpha_blending();
+    bind3(water_texture, 1);
+    draw_elements1(plane);
     bind_default_framebuffer();
     use(&hdr2ldr_shader);
     disable_depth_test();
@@ -2042,20 +2057,6 @@ static void render_entities() {
     for (int32 it = 0; it < list_length(entities); it++) {
         render(&entities[it]);
     }
-}
-static void drawframe() {
-    use(&default3d_shader);
-    disable_blending();
-    enable_depth_test();
-    // static decl;
-    for (int32 it = 0; it < list_length(entities); it++) {
-        render(&entities[it]);
-        if (gizmo_delay) gizmo_delay--; else if (gizmo_transform1(&entities[it].tr)) gizmo_delay = 60;
-    }
-    mat4 model = mat4_identity();
-    update_buffer(model_ubo->buffer_id, sizeof(mat4), &model);
-    use(&water_shader);
-    draw_elements1(plane);
 }
 static char* fileread1(char* filename) {
     return fileread2(filename, "r");
@@ -2984,8 +2985,8 @@ static void on_resize(GLFWwindow* window, int32 w, int32 h) {
     main_window_aspect = (main_window_height / main_window_width);
     printf("%s%d%s%d%s", "[INFO]: Window resize: ", w, "x", h, "\n");
     glViewport(0, 0, w, h);
-    resize(g_buffer, (uint32)w, (uint32)h);
-    resize(hdr_buffer, (uint32)w, (uint32)h);
+    resize(&g_buffer, (uint32)w, (uint32)h);
+    resize(&hdr_buffer, (uint32)w, (uint32)h);
 }
 static void opengl_debug_callback(GLenum source, GLenum _type, GLuint id, GLenum severity, GLsizei length, GLchar* message, void* userParam) {
     switch (_type) {
@@ -3069,7 +3070,10 @@ static void enable_depth_test() {
 static void disable_depth_test() {
     glDisable(2929);
 }
-static void set_clear_color(Color color) {
+static void set_clear_color1(float32 r, float32 g, float32 b, float32 a) {
+    glClearColor(r, g, b, a);
+}
+static void set_clear_color2(Color color) {
     glClearColor((color.r / 255.000000), (color.g / 255.000000), (color.b / 255.000000), (color.a / 255.000000));
 }
 static void set_clear_depth(float64 depth) {
@@ -3078,8 +3082,12 @@ static void set_clear_depth(float64 depth) {
 static void clear_color1() {
     glClear(16384);
 }
-static void clear_color2(Color color) {
-    set_clear_color(color);
+static void clear_color2(float32 r, float32 g, float32 b, float32 a) {
+    set_clear_color1(r, g, b, a);
+    clear_color1();
+}
+static void clear_color3(Color color) {
+    set_clear_color2(color);
     clear_color1();
 }
 static void clear_depth1() {
@@ -3734,10 +3742,13 @@ static void rotate1(Transform* tr, quat q) {
 static void rotate2(Transform* tr, vec3 axis, float32 angle) {
     rotate1(tr, axisangle2quat(axis, angle));
 }
-static void translate(Transform* tr, vec3 t) {
-    tr->position.x += t.x;
-    tr->position.y += t.y;
-    tr->position.z += t.z;
+static void translate1(Transform* tr, vec3 t) {
+    translate2(tr, t.x, t.y, t.z);
+}
+static void translate2(Transform* tr, float32 x, float32 y, float32 z) {
+    tr->position.x += x;
+    tr->position.y += y;
+    tr->position.z += z;
 }
 static void look_at1(Transform* tr, vec3 target, vec3 up) {
     vec3 forward = normalize2(sub2(target, tr->position));
@@ -3824,8 +3835,12 @@ static void camera_fly_control(Camera* cam) {
         rotate2(&cam->transform, left, (float32)(-dmouse_y / 100.000000));
         rotate2(&cam->transform, (vec3)(vec3) {0, 1, 0}, (float32)(dmouse_x / 100.000000));
     }
-    cam->transform.position = add2(cam->transform.position, mul4(forward, (wasd.y / 10.000000)));
-    cam->transform.position = add2(cam->transform.position, mul4(left, (-wasd.x / 10.000000)));
+    float32 speed = 0.100000;
+    if (key2(340)) {
+        speed = 1.000000;
+    }
+    translate1(&cam->transform, mul4(forward, (wasd.y * speed)));
+    translate1(&cam->transform, mul4(left, (-wasd.x * speed)));
 }
 static vec2 screen2ndc(float32 x, float32 y) {
     return (vec2) {(((x / (main_window_width - 1)) - 0.500000) * 2.000000), (-((y / (main_window_height - 1)) - 0.500000) * 2.000000)};
@@ -4071,7 +4086,10 @@ static void flip_indices2(Mesh mesh, uint32 base, uint32 len) {
         i += 3;
     }
 }
-static Mesh gen_plane(uint32 size) {
+static Mesh gen_plane1(uint32 size) {
+    return gen_plane2(size, 1.000000);
+}
+static Mesh gen_plane2(uint32 size, float32 uv_scale) {
     uint32 vsize = (size + 1);
     float32 half_size = ((float32)size / 2);
     Mesh mesh = (Mesh) {0};
@@ -4083,7 +4101,7 @@ static Mesh gen_plane(uint32 size) {
     for (uint32 xi = 0; xi < vsize; xi++) {
         for (uint32 yi = 0; yi < vsize; yi++) {
             uint32 vi = ((xi * vsize) + yi);
-            mesh.vertices[vi] = (vertex3D) {.pos = {(xi - half_size), 0, (yi - half_size)}, .normal = (vec3)(vec3) {0, 1, 0}, .uv = {((float32)xi / size), ((float32)yi / size)}};
+            mesh.vertices[vi] = (vertex3D) {.pos = {(xi - half_size), 0, (yi - half_size)}, .normal = (vec3)(vec3) {0, 1, 0}, .uv = {(((float32)xi / size) * uv_scale), (((float32)yi / size) * uv_scale)}};
             if ((xi < size) && (yi < size)) {
                 mesh.indices[i++] = vi;
                 mesh.indices[i++] = (vi + 1);
@@ -4458,6 +4476,7 @@ static Framebuffer create_framebuffer(uint32 w, uint32 h, Array color_attachment
     bind1(fr);
     if (has_depth_buffer) {
         glGenRenderbuffers(1, &fr.depth_buffer_handle);
+        printf("%s%u%s", "[INFO]: OpenGL generated renderbuffer: ", fr.depth_buffer_handle, "\n");
         init_render_buffer(fr.depth_buffer_handle, 4, w, h);
         glFramebufferRenderbuffer(36160, 36096, 36161, fr.depth_buffer_handle);
     }
@@ -4496,15 +4515,15 @@ static void blit3(Framebuffer dst, Framebuffer src, GLbitfield mask, TextureFilt
     ivec2 src_size = (ivec2) {src.width, src.height};
     blit1(dst, src, (ivec2)(ivec2) {0, 0}, dst_size, (ivec2)(ivec2) {0, 0}, src_size, mask, filter);
 }
-static void resize(Framebuffer fr, uint32 w, uint32 h) {
-    fr.width = w;
-    fr.height = h;
-    if (fr.depth_buffer_handle) {
-        init_render_buffer(fr.depth_buffer_handle, 4, w, h);
+static void resize(Framebuffer* fr, uint32 w, uint32 h) {
+    fr->width = w;
+    fr->height = h;
+    if (fr->depth_buffer_handle) {
+        init_render_buffer(fr->depth_buffer_handle, 4, w, h);
     }
-    for (int32 it = 0; it < fr.attachments.length; it++) {
-        bind_texture2D(((FramebufferAttachment*)fr.attachments.data)[it].gl_handle, 0);
-        glTexImage2D(3553, 0, get_opengl_internal_format(((FramebufferAttachment*)fr.attachments.data)[it].format), w, h, 0, 6408, 5121, 0);
+    for (int32 it = 0; it < fr->attachments.length; it++) {
+        bind_texture2D(((FramebufferAttachment*)fr->attachments.data)[it].gl_handle, 0);
+        glTexImage2D(3553, 0, get_opengl_internal_format(((FramebufferAttachment*)fr->attachments.data)[it].format), w, h, 0, 6408, 5121, 0);
     }
     bind_texture2D(0, 0);
 }
@@ -4542,7 +4561,7 @@ static Texture2D create_texture2D(Image image) {
     return tex;
 }
 static void bind2(Texture2D tex) {
-    glBindTexture(3553, tex.gl_handle);
+    bind_texture2D(tex.gl_handle, 0);
 }
 static void bind3(Texture2D tex, uint32 index) {
     bind_texture2D(tex.gl_handle, index);
