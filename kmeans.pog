@@ -83,7 +83,7 @@ KmeansCluster* generate_clusters(uint32 k) {
     int32 seed = 0;
 
     KmeansCluster* res = list_create(sizeof KmeansCluster);
-    for 0 .. k {
+    for uint32 it : 0 .. k {
         KmeansCluster c;
         c.color = colors[it % colors.length];
         c.pos = {random(seed++)*10, random(seed++)*10, random(seed++)*10};

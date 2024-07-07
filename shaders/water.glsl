@@ -19,6 +19,7 @@ layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
 layout (location = 2) in vec2 a_Uv;
 
+uniform vec2 water_pos;
 
 // wave direction must be normalized
 void gerstner_wave(vec2 coord, vec2 dir, float steepness, float wave_length, inout vec3 pos, inout vec3 tangent, inout vec3 binormal) {
@@ -35,6 +36,7 @@ void gerstner_wave(vec2 coord, vec2 dir, float steepness, float wave_length, ino
 
 void main() {
     vec4 wpos = vec4(a_Pos, 1.0);
+    wpos.xz += water_pos;
 
     vec3 tangent  = vec3(1, 0, 0);
     vec3 binormal = vec3(0, 0, 1);
@@ -43,7 +45,7 @@ void main() {
 
     v2f.pos = (camera.view * wpos).xyz;
     v2f.normal = mat3(camera.view) * normalize(cross(binormal, tangent));
-    v2f.uv = a_Uv;
+    v2f.uv = a_Uv - water_pos;
     gl_Position = camera.projection * camera.view * wpos;
 }
 
@@ -52,6 +54,8 @@ void main() {
 
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#include "../grax/shaders/camera.glsl"
+#include "../grax/shaders/lights.glsl"
 
 layout (binding = 0) uniform sampler2D g_buffer_pos;
 layout (binding = 1) uniform sampler2D water_tex;
@@ -72,12 +76,20 @@ void main() {
 
     float alpha = clamp(depth / visibility_distance, 0, 1);
 
+    // vec3 color = water_color;
     vec3 color = texture(water_tex, v2f.uv).rgb * water_color;
     color += vec3(step(alpha, 0.01));
     alpha += step(alpha, 0.01);
 
-    FragColor = vec4(color, alpha);
-    // FragColor = vec4(lerp_percent, lerp_percent, lerp_percent, 1.0);
-    // FragColor = vec4(geom_depth, geom_depth, geom_depth, 1.0);
+
+
+    Geometry g;
+    g.pos = v2f.pos;
+    g.normal = v2f.normal;
+    g.albedo = color;
+    g.roughness = 0.5;
+    g.metallic = 0.0;
+
+    FragColor = vec4(calc_dir_light(vec3(1, 1, 1), vec3(3, 3, 3), g), alpha);
 }
 #endif
