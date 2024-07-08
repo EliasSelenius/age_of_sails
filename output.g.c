@@ -954,10 +954,10 @@ struct Camera {
 
 // Forward declarations
 static void gizmo_draw_obj(OBJ_Data obj, vec3 offset);
+static void loadassets();
 static void resize_framebuffers(uint32 w, uint32 h);
 static void on_event(AppEvent event, AppEventData data);
 void __main();
-static void loadassets();
 static void drawframe();
 static void gerstner_wave(vec2 coord, vec2 dir, float32 steepness, float32 wave_length, vec3* pos, vec3* tangent, vec3* binormal);
 static vec3 water_offset(vec2 coord);
@@ -2118,7 +2118,7 @@ static int32 global_seed = 0;
 static Camera cam;
 static Entity* entities;
 static UBO** uniform_buffer_objects;
-static Array offsets = (Array) { .length = 6, .data = (vec3[]){(vec3) {2.100000, -1.200000, 13.000000}, (vec3) {-2.100000, -1.200000, 13.000000}, (vec3) {2.900000, -1.200000, 0.000000}, (vec3) {-2.900000, -1.200000, 0.000000}, (vec3) {2.100000, -1.200000, -10.000000}, (vec3) {-2.100000, -1.200000, -10.000000}}};
+static Array offsets = (Array) { .length = 3, .data = (vec3[]){(vec3) {2.100000, -1, 13.000000}, (vec3) {2.900000, -1, 0.000000}, (vec3) {2.100000, -1, -10.000000}}};
 static char* num_str;
 static StringBuilder* temps;
 static uint32 rotation = 0;
@@ -2133,6 +2133,40 @@ static void gizmo_draw_obj(OBJ_Data obj, vec3 offset) {
     for (int32 it = 0; it < list_length(obj.vertices); it++) {
         gizmo_point1(add2(obj.vertices[it], offset));
     }
+}
+static DrawBuffers load_drawable(char* name) {
+    OBJ_Data obj = load_obj(name);
+    Mesh mesh = obj_to_mesh(obj);
+    free_obj(obj);
+    gen_normals(mesh);
+    DrawBuffers db = create_draw_buffers1(mesh);
+    list_delete(mesh.vertices);
+    free(mesh.indices);
+    return db;
+}
+static void loadassets() {
+    /* local procedure */;
+    pyramid = load_drawable("../shared_assets/pyramid.obj");
+    Boate = load_drawable("../shared_assets/Boate_Smooth.obj");
+    {
+        OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
+        Mesh mesh = obj_to_mesh(obj);
+        OBJ_Object windows = obj.objects[4];
+        flip_indices2(mesh, windows.indices_start, windows.indices_length);
+        gen_normals(mesh);
+        firstTownscaper = create_draw_buffers1(mesh);
+        free_obj(obj);
+        list_delete(mesh.vertices);
+        free(mesh.indices);
+    }
+    Mesh water_mesh = gen_plane2(100, 10);
+    water_plane = create_draw_buffers1(water_mesh);
+    free(water_mesh.vertices);
+    free(water_mesh.indices);
+    test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
+    town_texture = load_texture2D("../shared_assets/TownColor.bmp");
+    water_texture = load_texture2D("../shared_assets/Water.bmp");
+    water_shader = load_shader1("shaders/water.glsl");
 }
 static void resize_framebuffers(uint32 w, uint32 h) {
     resize(&g_buffer, w, h);
@@ -2154,8 +2188,8 @@ void __main() {
     loadassets();
     model_ubo = get_ubo1("Instances");
     cam.transform.position = (vec3) {0, 0, -10};
-    spawn_entity(&pyramid, &test_color_texture);
-    spawn_entity(&firstTownscaper, &town_texture)->tr.position = (vec3) {0, -5, 0};
+    spawn_entity(&pyramid, &test_color_texture)->tr.position = (vec3) {30, 0, 0};
+    spawn_entity(&firstTownscaper, &town_texture)->tr.position = (vec3) {200, -5, 0};
     Entity* boat = spawn_entity(&Boate, &test_color_texture);
     uint32 boat_index = (list_length(entities) - 1);
     boat->tr.position = (vec3) {-20, 0, 0};
@@ -2197,40 +2231,6 @@ void __main() {
         gizmo_dispatch();
     }
 }
-static DrawBuffers load_drawable(char* name) {
-    OBJ_Data obj = load_obj(name);
-    Mesh mesh = obj_to_mesh(obj);
-    free_obj(obj);
-    gen_normals(mesh);
-    DrawBuffers db = create_draw_buffers1(mesh);
-    list_delete(mesh.vertices);
-    free(mesh.indices);
-    return db;
-}
-static void loadassets() {
-    /* local procedure */;
-    pyramid = load_drawable("../shared_assets/pyramid.obj");
-    Boate = load_drawable("../shared_assets/Boate_Smooth.obj");
-    {
-        OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
-        Mesh mesh = obj_to_mesh(obj);
-        OBJ_Object windows = obj.objects[4];
-        flip_indices2(mesh, windows.indices_start, windows.indices_length);
-        gen_normals(mesh);
-        firstTownscaper = create_draw_buffers1(mesh);
-        free_obj(obj);
-        list_delete(mesh.vertices);
-        free(mesh.indices);
-    }
-    Mesh water_mesh = gen_plane2(100, 10);
-    water_plane = create_draw_buffers1(water_mesh);
-    free(water_mesh.vertices);
-    free(water_mesh.indices);
-    test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
-    town_texture = load_texture2D("../shared_assets/TownColor.bmp");
-    water_texture = load_texture2D("../shared_assets/Water.bmp");
-    water_shader = load_shader1("shaders/water.glsl");
-}
 static void draw_screen_quad() {
     glBindVertexArray(dummy_vao);
     glDrawArrays(4, 0, 6);
@@ -2256,8 +2256,7 @@ static void drawframe() {
     enable_depth_test();
     enable_alpha_blending();
     bind3(water_texture, 1);
-    vec3 v = (cam.transform.position);
-    vec2 water_center = (vec2) {v.x, v.z};
+    vec2 water_center = round2(xz1(cam.transform.position));
     /* local constant */;
     for (int32 y = -10; y < (10 + 1); y++) for (int32 x = -10; x < (10 + 1); x++) {
         set_uniform17("water_pos", add1(water_center, mul7(make_vec1(x, y), 100)));
@@ -2282,6 +2281,7 @@ static void gerstner_wave(vec2 coord, vec2 dir, float32 steepness, float32 wave_
 static vec3 water_offset(vec2 coord) {
     vec3 wpos = (vec3) {0};
     gerstner_wave(coord, normalize1(make_vec1(1, 1.300000)), 0.250000, 18, &wpos, 0, 0);
+    gerstner_wave(coord, normalize1(make_vec1(1, 0.600000)), 0.250000, 31, &wpos, 0, 0);
     return wpos;
 }
 static float32 approx_water_height(vec2 coord) {
@@ -2321,6 +2321,17 @@ static Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     e.rb.mass = 1;
     return list_add((void**)(&entities), &e);
 }
+static void check_buoyancy(Rigidbody* rb, mat4 model, vec3 point) {
+    vec3 offset = xyz(mul21(make_vec6(point, 1.000000), model));
+    float32 water_height = approx_water_height(xz1(offset));
+    gizmo_point3(offset, rgb2(0.800000));
+    gizmo_point3(make_vec2(offset.x, water_height, offset.z), (Color)(Color) {0, 0, 255, 255});
+    if (offset.y < water_height) {
+        vec3 force = (vec3) {0, ((2.500000 * (water_height - offset.y)) * deltatime()), 0};
+        vec3 loc = xyz(mul21(make_vec6(point, 0), model));
+        add_force2(rb, force, loc);
+    }
+}
 static void update(Entity* e) {
     float32 dt = deltatime();
     e->rb.velocity.y -= (9.800000 * dt);
@@ -2330,17 +2341,13 @@ static void update(Entity* e) {
     e->rb.angular_velocity = sub2(e->rb.angular_velocity, mul8(mul8(e->rb.angular_velocity, angular_damp), dt));
     {
         // static decl;
+        /* local procedure */;
+        mat4 model = to_matrix(e->tr);
         for (int32 it = 0; it < offsets.length; it++) {
-            mat4 model = to_matrix(e->tr);
-            vec3 offset = xyz(mul21(make_vec6(((vec3*)offsets.data)[it], 1.000000), model));
-            float32 water_height = approx_water_height(xz1(offset));
-            gizmo_point3(offset, rgb2(0.800000));
-            gizmo_point3(make_vec2(offset.x, water_height, offset.z), (Color)(Color) {0, 0, 255, 255});
-            if (offset.y < water_height) {
-                vec3 force = (vec3) {0, ((2.500000 * (water_height - offset.y)) * dt), 0};
-                vec3 loc = xyz(mul21(make_vec6(((vec3*)offsets.data)[it], 0), model));
-                add_force2(&e->rb, force, loc);
-            }
+            vec3 o = ((vec3*)offsets.data)[it];
+            check_buoyancy(&e->rb, model, o);
+            o.x *= -1;
+            check_buoyancy(&e->rb, model, o);
         }
     }
     update_physics(&e->tr, &e->rb, dt);
@@ -2361,8 +2368,8 @@ static void render_pass_geometry() {
     render_entities();
     for (int32 y = 0; y < 10; y++) for (int32 x = 0; x < 10; x++) {
         vec2 coord = make_vec1(x, y);
-        gizmo_point1(water_offset(coord));
-        approx_water_height(coord);
+        float32 height = approx_water_height(coord);
+        gizmo_point3(make_vec2(x, height, y), (Color)(Color) {255, 255, 255, 255});
     }
 }
 static char* fileread1(char* filename) {

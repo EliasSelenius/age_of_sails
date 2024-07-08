@@ -41,11 +41,13 @@ void main() {
     vec3 tangent  = vec3(1, 0, 0);
     vec3 binormal = vec3(0, 0, 1);
 
-    gerstner_wave(wpos.xz, normalize(vec2(1, 1.3)), 0.25, 18, wpos.xyz, tangent, binormal);
+    vec2 coord = wpos.xz;
+    gerstner_wave(coord, normalize(vec2(1, 1.3)), 0.25, 18, wpos.xyz, tangent, binormal);
+    gerstner_wave(coord, normalize(vec2(1, 0.6)), 0.25, 31, wpos.xyz, tangent, binormal);
 
     v2f.pos = (camera.view * wpos).xyz;
     v2f.normal = mat3(camera.view) * normalize(cross(binormal, tangent));
-    v2f.uv = a_Uv - water_pos;
+    v2f.uv = a_Uv + (water_pos * 0.1); // NOTE: the magic number here comes from the uv scaling in the mesh
     gl_Position = camera.projection * camera.view * wpos;
 }
 
