@@ -25,19 +25,15 @@ porting 'c_opengl' (the boat game) to plang:
     - skybox
 
 TODOs:
-    - LOD levels for water
     - point lights
     - lantern model
     - line segment rendering
     - whale model
+    - boat controller
+    - non-repetitive pattern in water
+    - rudimentary terrain gen
 */
 
-
-void gizmo_draw_obj(OBJ_Data obj, vec3 offset) {
-    for 0 .. list_length(obj.vertices) {
-        gizmo_point(add(obj.vertices[it], offset));
-    }
-}
 
 
 Camera cam = make_camera(90 * deg2rad, 0.1, 1000);
@@ -46,6 +42,9 @@ UBO* model_ubo;
 GLuint dummy_vao;
 
 Shader water_shader;
+Shader ground_shader;
+Shader skybox_shader;
+
 Shader g_shader;
 Shader hdr2ldr_shader;
 Shader dirlight_shader;
@@ -60,8 +59,9 @@ Texture2D water_texture;
 DrawBuffers pyramid;
 DrawBuffers Boate;
 DrawBuffers firstTownscaper;
-DrawBuffers water_plane;
-const water_size = 100;
+DrawBuffers mesh_plane;
+DrawBuffers skybox;
+const chunk_size = 100;
 
 
 void loadassets() {
@@ -95,10 +95,10 @@ void loadassets() {
         free(mesh.indices);
     }
 
-    let water_mesh = gen_plane(water_size, 10);
-    water_plane = create_draw_buffers(water_mesh);
-    free(water_mesh.vertices);
-    free(water_mesh.indices);
+    let plane = gen_plane(chunk_size, 10);
+    mesh_plane = create_draw_buffers(plane);
+    free(plane.vertices);
+    free(plane.indices);
 
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
     town_texture = load_texture2D("../shared_assets/TownColor.bmp");
@@ -106,6 +106,37 @@ void loadassets() {
 
 
     water_shader = load_shader("shaders/water.glsl");
+    ground_shader = load_shader("shaders/ground_mesh.glsl");
+    skybox_shader = load_shader("shaders/skybox.glsl");
+
+
+    {
+        uint32[] skybox_indices = {
+            0, 1, 2, 2, 1, 3,
+            1, 5, 7, 1, 7, 3,
+            0, 5, 1, 0, 4, 5,
+            0, 2, 4, 2, 6, 4,
+            2, 3, 7, 7, 6, 2,
+            6, 5, 4, 7, 5, 6
+        };
+
+        vec3[] skybox_vertices = {
+            { -1, -1, -1 },
+            {  1, -1, -1 },
+            { -1,  1, -1 },
+            {  1,  1, -1 },
+            { -1, -1,  1 },
+            {  1, -1,  1 },
+            { -1,  1,  1 },
+            {  1,  1,  1 }
+        };
+
+        skybox = create_draw_buffers(sizeof vec3, {.vec3} as VertexAttributeType[]);
+        update_indices(*skybox, skybox_indices);
+        update_vertices(*skybox, skybox_vertices.length * sizeof vec3, skybox_vertices.data);
+
+        glDepthFunc(GL_LEQUAL); // required for skybox
+    }
 
 }
 
@@ -119,6 +150,13 @@ void on_event(AppEvent event, AppEventData data) {
     switch event {
         case .resize: {
             resize_framebuffers(app.window_width, app.window_height);
+        } break;
+        case .key_press: {
+            if data.key == 'R' {
+                delete_shader(ground_shader);
+                ground_shader = load_shader("shaders/ground_mesh.glsl");
+                print("SHADER RELOAD\n");
+            }
         } break;
     }
 }
@@ -135,12 +173,14 @@ void main() {
 
 
     spawn_entity(*pyramid, *test_color_texture).tr.position = {30, 0, 0};
-    spawn_entity(*firstTownscaper, *town_texture).tr.position = { 200, -5, 0 };
+    let town = spawn_entity(*firstTownscaper, *town_texture);
+    town.tr.position = { 100, -5, 0 };
+    town.has_buoyancy = false;
     Entity* boat = spawn_entity(*Boate, *test_color_texture);
     uint32 boat_index = list_length(entities) - 1;
     boat.tr.position = {-20, 0, 0};
 
-    for 1 .. 100 {
+    for 1 .. 10 {
         Entity* e = spawn_entity(*Boate, *white_texture);
         e.tr.position = {0, 0, it * 50};
     }
@@ -186,11 +226,14 @@ void main() {
         }
 
         { // temp boat controll
-            let e = *entities[boat_index];
-            if key(GLFW_KEY_RIGHT) add_torque(*e.rb, {0, 1, 0} as vec3);
-            if key(GLFW_KEY_LEFT)  add_torque(*e.rb, {0, -1, 0} as vec3);
+            const torque = 0.05;
+            const force = 0.2;
 
-            if key(GLFW_KEY_UP) add_force(*e.rb, forward(e.tr));
+            let e = *entities[boat_index];
+            if key(GLFW_KEY_RIGHT) add_torque(*e.rb, {0, torque, 0} as vec3);
+            if key(GLFW_KEY_LEFT)  add_torque(*e.rb, {0, -torque, 0} as vec3);
+
+            if key(GLFW_KEY_UP) add_force(*e.rb, forward(e.tr) * force);
             if key(GLFW_KEY_DOWN) add_force(*e.rb, {0, 1, 0} as vec3);
         }
 
@@ -203,14 +246,22 @@ void main() {
 
 void drawframe() {
     bind(g_buffer);
-    use(*g_shader);
     enable_depth_test();
     disable_blending();
     clear_color(Black);
     clear_depth();
 
     // render geometry
+    use(*g_shader);
     render_pass_geometry();
+
+    use(*ground_shader);
+    let center = round(xz(cam.transform.position));
+    const render_dist_chunks = 10;
+    for y : -render_dist_chunks .. render_dist_chunks+1 for x : -render_dist_chunks .. render_dist_chunks+1 {
+        set_uniform("chunk_pos", center + make_vec(x, y) * chunk_size);
+        draw_elements(mesh_plane);
+    }
 
 
     // blit depth buffer
@@ -221,26 +272,27 @@ void drawframe() {
         glDrawArrays(GL_TRIANGLES, 0, 6); // this call causes GL_INVALID_OPERATION without the dummy_vao
     }
 
-    bind(hdr_buffer);
-    use(*dirlight_shader);
-    disable_depth_test();
-    enable_additive_blending();
-    clear_color(Black);
-    for 0 .. g_buffer.attachments.length  bind_texture2D(g_buffer.attachments[it].gl_handle, it as uint32);
+    bind(hdr_buffer); clear_color(Black);
 
-    // render light volumes
-    draw_screen_quad();
+    use(*skybox_shader); draw_elements(skybox); // SKYBOX
+
+    use(*dirlight_shader); disable_depth_test(); enable_additive_blending();
+    for 0 .. g_buffer.attachments.length  bind_texture2D(g_buffer.attachments[it].gl_handle, it as uint32);
+    draw_screen_quad(); // render light volumes
 
 
     use(*water_shader);
+    static float32 depth_factor = 0.05;
+    depth_factor += mouse_scroll / 100.0;
+    set_uniform("depth_factor", depth_factor);
+    draw_text(vec2_zero, 0.05, to_string((depth_factor * 1000) as uint32), White);
+
     enable_depth_test();
     enable_alpha_blending();
     bind(water_texture, 1);
-    let water_center = round(xz(cam.transform.position));
-    const water_radius = 10;
-    for y : -water_radius .. water_radius+1 for x : -water_radius .. water_radius+1 {
-        set_uniform("water_pos", add(water_center, mul(make_vec(x, y), water_size)));
-        draw_elements(water_plane);
+    for y : -render_dist_chunks .. render_dist_chunks+1 for x : -render_dist_chunks .. render_dist_chunks+1 {
+        set_uniform("water_pos", center + make_vec(x, y) * chunk_size);
+        draw_elements(mesh_plane);
     }
 
 
@@ -270,7 +322,8 @@ void gerstner_wave(vec2 coord, dir, float32 steepness, wave_length, vec3* pos, t
 vec3 water_offset(vec2 coord) {
     vec3 wpos = {};
     gerstner_wave(coord, normalize(make_vec(1, 1.3)), 0.25, 18, *wpos, null, null);
-    gerstner_wave(coord, normalize(make_vec(1, 0.6)), 0.25, 31, *wpos, null, null);
+    gerstner_wave(coord, normalize(make_vec(1, 0.6)), 0.04, 31, *wpos, null, null);
+    gerstner_wave(coord, normalize(make_vec(0.5, 1)), 0.1,  7,  *wpos, null, null);
     return wpos;
 }
 
@@ -326,6 +379,7 @@ struct Entity {
     DrawBuffers* db;
     with Transform tr;
     with Rigidbody rb;
+    bool has_buoyancy;
 }
 
 Entity* entities = list_create(sizeof Entity);
@@ -339,22 +393,25 @@ Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     e.rb = {};
     e.rb.mass = 1;
 
+    e.has_buoyancy = true;
+
     return list_add(*entities, *e);
 }
 
 void update(Entity* e) {
     let dt = deltatime();
 
-    e.rb.velocity.y -= 9.8 * dt; // gravity
+    if e.has_buoyancy {
+        e.rb.velocity.y -= 9.8 * dt; // gravity
+    }
 
     float32 damp_factor = 1.0;
     e.rb.velocity = e.rb.velocity - e.rb.velocity * damp_factor * dt;
 
-    float32 angular_damp = 10;
+    float32 angular_damp = 5;
     e.rb.angular_velocity = e.rb.angular_velocity - e.rb.angular_velocity * angular_damp * dt;
 
-    { // buoyancy
-        // TODO: we don't need floating points for each side of the boat, boats are always symmetrical
+    if e.has_buoyancy { // buoyancy
         static vec3[] offsets = {
             {  2.1, -1,  13.0 },
             {  2.9, -1,   0.0 },

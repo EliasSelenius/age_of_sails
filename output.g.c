@@ -936,6 +936,7 @@ struct Entity {
     DrawBuffers* db;
     Transform tr;
     Rigidbody rb;
+    bool has_buoyancy;
 };
 struct RenderLayer {
     Trianglebatch geometry;
@@ -953,7 +954,6 @@ struct Camera {
 };
 
 // Forward declarations
-static void gizmo_draw_obj(OBJ_Data obj, vec3 offset);
 static void loadassets();
 static void resize_framebuffers(uint32 w, uint32 h);
 static void on_event(AppEvent event, AppEventData data);
@@ -1209,6 +1209,7 @@ static void process_glsl_source(StringBuilder* sb, char* filename);
 static Shader load_shader1(char* filename);
 static Shader load_shader2(char* frag_filename, char* vert_filename);
 static Shader create_shader(string name, char* fragsrc, char* vertsrc);
+static void delete_shader(Shader shader);
 static void set_uniform1(char* name, float32 x);
 static void set_uniform2(char* name, float32 x, float32 y);
 static void set_uniform3(char* name, float32 x, float32 y, float32 z);
@@ -1469,12 +1470,15 @@ static void disable_cursor();
 static VertexAttributeInfo get_vertex_attribute_info(VertexAttributeType datatype);
 static uint32 set_vertex_attribute_pointer(uint32 index, VertexAttributeType datatype, int32 stride, uint32 offset);
 static void init_vertex_layout(int32 stride, Array attribs);
+static DrawBuffers create_draw_buffers1(int32 vertex_size, Array attribs);
 static void setup_vertex2D_attributes();
 static void setup_vertex3D_attributes();
-static DrawBuffers create_draw_buffers1(Mesh mesh);
-static DrawBuffers create_draw_buffers2();
+static DrawBuffers create_draw_buffers2(Mesh mesh);
+static DrawBuffers create_draw_buffers3();
 static void update_buffers1(DrawBuffers* db, Array vertices, Array indices);
 static void update_buffers2(DrawBuffers* db, vertex2D* vertices, uint32 vertices_count, uint32* indices, uint32 indices_count);
+static void update_vertices(DrawBuffers* db, uint32 vbo_bytes, void* vertices);
+static void update_indices(DrawBuffers* db, Array indices);
 static void update_buffer(uint32 buffer, uint32 size, void* data);
 static void draw_elements1(DrawBuffers db);
 static void draw_elements2(DrawBuffers db, uint32 instanceCount);
@@ -1545,6 +1549,8 @@ static void draw_kmeans_data(KmeansCluster* clusters, KmeansObservation* obs);
 static UBO* model_ubo;
 static GLuint dummy_vao;
 static Shader water_shader;
+static Shader ground_shader;
+static Shader skybox_shader;
 static Shader g_shader;
 static Shader hdr2ldr_shader;
 static Shader dirlight_shader;
@@ -1556,7 +1562,8 @@ static Texture2D water_texture;
 static DrawBuffers pyramid;
 static DrawBuffers Boate;
 static DrawBuffers firstTownscaper;
-static DrawBuffers water_plane;
+static DrawBuffers mesh_plane;
+static DrawBuffers skybox;
 static proc_glActiveShaderProgram glActiveShaderProgram = 0;
 static proc_glActiveTexture glActiveTexture = 0;
 static proc_glAttachShader glAttachShader = 0;
@@ -2118,6 +2125,7 @@ static int32 global_seed = 0;
 static Camera cam;
 static Entity* entities;
 static UBO** uniform_buffer_objects;
+static float32 depth_factor = 0.050000;
 static Array offsets = (Array) { .length = 3, .data = (vec3[]){(vec3) {2.100000, -1, 13.000000}, (vec3) {2.900000, -1, 0.000000}, (vec3) {2.100000, -1, -10.000000}}};
 static char* num_str;
 static StringBuilder* temps;
@@ -2129,17 +2137,12 @@ static bool prev_state = 0;
 static Array colors = (Array) { .length = 6, .data = (Color[]){(Color)(Color) {255, 0, 0, 255}, (Color)(Color) {0, 255, 0, 255}, (Color)(Color) {0, 0, 255, 255}, (Color)(Color) {255, 255, 0, 255}, (Color)(Color) {0, 255, 255, 255}, (Color)(Color) {255, 0, 255, 255}}};
 
 // Implementations
-static void gizmo_draw_obj(OBJ_Data obj, vec3 offset) {
-    for (int32 it = 0; it < list_length(obj.vertices); it++) {
-        gizmo_point1(add2(obj.vertices[it], offset));
-    }
-}
 static DrawBuffers load_drawable(char* name) {
     OBJ_Data obj = load_obj(name);
     Mesh mesh = obj_to_mesh(obj);
     free_obj(obj);
     gen_normals(mesh);
-    DrawBuffers db = create_draw_buffers1(mesh);
+    DrawBuffers db = create_draw_buffers2(mesh);
     list_delete(mesh.vertices);
     free(mesh.indices);
     return db;
@@ -2154,19 +2157,29 @@ static void loadassets() {
         OBJ_Object windows = obj.objects[4];
         flip_indices2(mesh, windows.indices_start, windows.indices_length);
         gen_normals(mesh);
-        firstTownscaper = create_draw_buffers1(mesh);
+        firstTownscaper = create_draw_buffers2(mesh);
         free_obj(obj);
         list_delete(mesh.vertices);
         free(mesh.indices);
     }
-    Mesh water_mesh = gen_plane2(100, 10);
-    water_plane = create_draw_buffers1(water_mesh);
-    free(water_mesh.vertices);
-    free(water_mesh.indices);
+    Mesh plane = gen_plane2(100, 10);
+    mesh_plane = create_draw_buffers2(plane);
+    free(plane.vertices);
+    free(plane.indices);
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
     town_texture = load_texture2D("../shared_assets/TownColor.bmp");
     water_texture = load_texture2D("../shared_assets/Water.bmp");
     water_shader = load_shader1("shaders/water.glsl");
+    ground_shader = load_shader1("shaders/ground_mesh.glsl");
+    skybox_shader = load_shader1("shaders/skybox.glsl");
+    {
+        Array skybox_indices = (Array) { .length = 36, .data = (uint32[]){0, 1, 2, 2, 1, 3, 1, 5, 7, 1, 7, 3, 0, 5, 1, 0, 4, 5, 0, 2, 4, 2, 6, 4, 2, 3, 7, 7, 6, 2, 6, 5, 4, 7, 5, 6}};
+        Array skybox_vertices = (Array) { .length = 8, .data = (vec3[]){(vec3) {-1, -1, -1}, (vec3) {1, -1, -1}, (vec3) {-1, 1, -1}, (vec3) {1, 1, -1}, (vec3) {-1, -1, 1}, (vec3) {1, -1, 1}, (vec3) {-1, 1, 1}, (vec3) {1, 1, 1}}};
+        skybox = create_draw_buffers1(sizeof(vec3), (Array)(Array) { .length = 1, .data = (VertexAttributeType[]){1}});
+        update_indices(&skybox, skybox_indices);
+        update_vertices(&skybox, (skybox_vertices.length * sizeof(vec3)), skybox_vertices.data);
+        glDepthFunc(515);
+    }
 }
 static void resize_framebuffers(uint32 w, uint32 h) {
     resize(&g_buffer, w, h);
@@ -2179,6 +2192,15 @@ static void on_event(AppEvent event, AppEventData data) {
             resize_framebuffers(app.window_width, app.window_height);
         }
         break;
+        case 0:;
+        {
+            if (data.key == 'R') {
+                delete_shader(ground_shader);
+                ground_shader = load_shader1("shaders/ground_mesh.glsl");
+                printf("%s", "SHADER RELOAD\n");
+            }
+        }
+        break;
     }
 }
 void __main() {
@@ -2189,11 +2211,13 @@ void __main() {
     model_ubo = get_ubo1("Instances");
     cam.transform.position = (vec3) {0, 0, -10};
     spawn_entity(&pyramid, &test_color_texture)->tr.position = (vec3) {30, 0, 0};
-    spawn_entity(&firstTownscaper, &town_texture)->tr.position = (vec3) {200, -5, 0};
+    Entity* town = spawn_entity(&firstTownscaper, &town_texture);
+    town->tr.position = (vec3) {100, -5, 0};
+    town->has_buoyancy = 0;
     Entity* boat = spawn_entity(&Boate, &test_color_texture);
     uint32 boat_index = (list_length(entities) - 1);
     boat->tr.position = (vec3) {-20, 0, 0};
-    for (int32 it = 1; it < 100; it++) {
+    for (int32 it = 1; it < 10; it++) {
         Entity* e = spawn_entity(&Boate, &white_texture);
         e->tr.position = (vec3) {0, 0, (it * 50)};
     }
@@ -2221,10 +2245,12 @@ void __main() {
             draw_text2(text_pos, 0.050000, "Click!", (Color)(Color) {255, 255, 255, 255});
         }
         {
+            /* local constant */;
+            /* local constant */;
             Entity* e = &entities[boat_index];
-            if (key2(262)) add_torque(&e->rb, (vec3)(vec3) {0, 1, 0});
-            if (key2(263)) add_torque(&e->rb, (vec3)(vec3) {0, -1, 0});
-            if (key2(265)) add_force1(&e->rb, forward(e->tr));
+            if (key2(262)) add_torque(&e->rb, (vec3)(vec3) {0, 0.050000, 0});
+            if (key2(263)) add_torque(&e->rb, (vec3)(vec3) {0, -0.050000, 0});
+            if (key2(265)) add_force1(&e->rb, mul8(forward(e->tr), 0.200000));
             if (key2(264)) add_force1(&e->rb, (vec3)(vec3) {0, 1, 0});
         }
         drawframe();
@@ -2237,30 +2263,41 @@ static void draw_screen_quad() {
 }
 static void drawframe() {
     bind1(g_buffer);
-    use(&g_shader);
     enable_depth_test();
     disable_blending();
     clear_color3((Color)(Color) {0, 0, 0, 255});
     clear_depth1();
+    use(&g_shader);
     render_pass_geometry();
+    use(&ground_shader);
+    vec2 center = round2(xz1(cam.transform.position));
+    /* local constant */;
+    for (int32 y = -10; y < (10 + 1); y++) for (int32 x = -10; x < (10 + 1); x++) {
+        set_uniform17("chunk_pos", add1(center, mul7(make_vec1(x, y), 100)));
+        draw_elements1(mesh_plane);
+    }
     blit3(hdr_buffer, g_buffer, 256, 0);
     /* local procedure */;
     bind1(hdr_buffer);
+    clear_color3((Color)(Color) {0, 0, 0, 255});
+    use(&skybox_shader);
+    draw_elements1(skybox);
     use(&dirlight_shader);
     disable_depth_test();
     enable_additive_blending();
-    clear_color3((Color)(Color) {0, 0, 0, 255});
     for (int32 it = 0; it < g_buffer.attachments.length; it++) bind_texture2D(((FramebufferAttachment*)g_buffer.attachments.data)[it].gl_handle, (uint32)it);
     draw_screen_quad();
     use(&water_shader);
+    // static decl;
+    depth_factor += (mouse_scroll / 100.000000);
+    set_uniform1("depth_factor", depth_factor);
+    draw_text1((vec2)(vec2) {0, 0}, 0.050000, to_string1((uint32)(depth_factor * 1000)), (Color)(Color) {255, 255, 255, 255});
     enable_depth_test();
     enable_alpha_blending();
     bind3(water_texture, 1);
-    vec2 water_center = round2(xz1(cam.transform.position));
-    /* local constant */;
     for (int32 y = -10; y < (10 + 1); y++) for (int32 x = -10; x < (10 + 1); x++) {
-        set_uniform17("water_pos", add1(water_center, mul7(make_vec1(x, y), 100)));
-        draw_elements1(water_plane);
+        set_uniform17("water_pos", add1(center, mul7(make_vec1(x, y), 100)));
+        draw_elements1(mesh_plane);
     }
     bind_default_framebuffer();
     use(&hdr2ldr_shader);
@@ -2281,7 +2318,8 @@ static void gerstner_wave(vec2 coord, vec2 dir, float32 steepness, float32 wave_
 static vec3 water_offset(vec2 coord) {
     vec3 wpos = (vec3) {0};
     gerstner_wave(coord, normalize1(make_vec1(1, 1.300000)), 0.250000, 18, &wpos, 0, 0);
-    gerstner_wave(coord, normalize1(make_vec1(1, 0.600000)), 0.250000, 31, &wpos, 0, 0);
+    gerstner_wave(coord, normalize1(make_vec1(1, 0.600000)), 0.040000, 31, &wpos, 0, 0);
+    gerstner_wave(coord, normalize1(make_vec1(0.500000, 1)), 0.100000, 7, &wpos, 0, 0);
     return wpos;
 }
 static float32 approx_water_height(vec2 coord) {
@@ -2319,6 +2357,7 @@ static Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     e.tr = transform_default();
     e.rb = (Rigidbody) {0};
     e.rb.mass = 1;
+    e.has_buoyancy = 1;
     return list_add((void**)(&entities), &e);
 }
 static void check_buoyancy(Rigidbody* rb, mat4 model, vec3 point) {
@@ -2334,12 +2373,14 @@ static void check_buoyancy(Rigidbody* rb, mat4 model, vec3 point) {
 }
 static void update(Entity* e) {
     float32 dt = deltatime();
-    e->rb.velocity.y -= (9.800000 * dt);
+    if (e->has_buoyancy) {
+        e->rb.velocity.y -= (9.800000 * dt);
+    }
     float32 damp_factor = 1.000000;
     e->rb.velocity = sub2(e->rb.velocity, mul8(mul8(e->rb.velocity, damp_factor), dt));
-    float32 angular_damp = 10;
+    float32 angular_damp = 5;
     e->rb.angular_velocity = sub2(e->rb.angular_velocity, mul8(mul8(e->rb.angular_velocity, angular_damp), dt));
-    {
+    if (e->has_buoyancy) {
         // static decl;
         /* local procedure */;
         mat4 model = to_matrix(e->tr);
@@ -3908,6 +3949,10 @@ static Shader create_shader(string name, char* fragsrc, char* vertsrc) {
     bind_ubos(&program);
     return program;
 }
+static void delete_shader(Shader shader) {
+    glDeleteProgram(shader.gl_handle);
+    sb_free(shader.debug_log);
+}
 static void set_uniform1(char* name, float32 x) {
     glUniform1f(glGetUniformLocation(active_shader->gl_handle, name), x);
 }
@@ -3989,7 +4034,7 @@ static Trianglebatch create_trianglebatch() {
     Trianglebatch tb = (Trianglebatch) {0};
     tb.vertices = list_create(sizeof(vertex2D));
     tb.indices = list_create(sizeof(uint32));
-    tb.draw_buffers = create_draw_buffers2();
+    tb.draw_buffers = create_draw_buffers3();
     return tb;
 }
 static void dispatch_trianglebatch(Trianglebatch* tb) {
@@ -5076,6 +5121,19 @@ static void init_vertex_layout(int32 stride, Array attribs) {
         offset += set_vertex_attribute_pointer(index, ((VertexAttributeType*)attribs.data)[index], stride, offset);
     }
 }
+static DrawBuffers create_draw_buffers1(int32 vertex_size, Array attribs) {
+    DrawBuffers db = (DrawBuffers) {0};
+    glGenVertexArrays(1, &db.vao);
+    glBindVertexArray(db.vao);
+    glGenBuffers(1, &db.vbo);
+    glBindBuffer(34962, db.vbo);
+    glGenBuffers(1, &db.ebo);
+    glBindBuffer(34963, db.ebo);
+    init_vertex_layout(vertex_size, attribs);
+    glBindVertexArray(0);
+    glBindBuffer(34962, 0);
+    return db;
+}
 static void setup_vertex2D_attributes() {
     Array attribs = (Array) { .length = 3, .data = (VertexAttributeType[]){0, 0, 3}};
     init_vertex_layout(sizeof(vertex2D), attribs);
@@ -5084,7 +5142,7 @@ static void setup_vertex3D_attributes() {
     Array attribs = (Array) { .length = 3, .data = (VertexAttributeType[]){1, 1, 0}};
     init_vertex_layout(sizeof(vertex3D), attribs);
 }
-static DrawBuffers create_draw_buffers1(Mesh mesh) {
+static DrawBuffers create_draw_buffers2(Mesh mesh) {
     DrawBuffers db;
     db.elements_count = (int32)mesh.indices_count;
     glGenVertexArrays(1, &db.vao);
@@ -5100,7 +5158,7 @@ static DrawBuffers create_draw_buffers1(Mesh mesh) {
     glBindBuffer(34962, 0);
     return db;
 }
-static DrawBuffers create_draw_buffers2() {
+static DrawBuffers create_draw_buffers3() {
     DrawBuffers db;
     db.elements_count = 0;
     glGenVertexArrays(1, &db.vao);
@@ -5121,6 +5179,13 @@ static void update_buffers2(DrawBuffers* db, vertex2D* vertices, uint32 vertices
     db->elements_count = (int32)indices_count;
     update_buffer(db->vbo, (vertices_count * sizeof(vertex2D)), vertices);
     update_buffer(db->ebo, (indices_count * sizeof(uint32)), indices);
+}
+static void update_vertices(DrawBuffers* db, uint32 vbo_bytes, void* vertices) {
+    update_buffer(db->vbo, vbo_bytes, vertices);
+}
+static void update_indices(DrawBuffers* db, Array indices) {
+    db->elements_count = indices.length;
+    update_buffer(db->ebo, (indices.length * sizeof(uint32)), indices.data);
 }
 static void update_buffer(uint32 buffer, uint32 size, void* data) {
     glBindBuffer(34962, buffer);
