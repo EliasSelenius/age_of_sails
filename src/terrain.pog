@@ -1,0 +1,91 @@
+
+
+const region_size = 400;
+
+DrawBuffers region_mesh;
+
+TerrainRegion region;
+
+struct TerrainRegion {
+    uint32 height_map;
+    ivec2 coord;
+}
+
+TerrainRegion create_region() {
+    TerrainRegion r = {};
+    glGenTextures(1, *r.height_map);
+    glBindTexture(GL_TEXTURE_2D, r.height_map);
+
+    // set_wrap_mode(TextureWrapMode.mirrored_repeat);
+    // set_wrap_mode(TextureWrapMode.repeat);
+    set_wrap_mode(TextureWrapMode.clamp_to_edge);
+
+    // set_filter(TextureFilter.nearest);
+    set_filter(TextureFilter.linear);
+
+    // glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, region_size, region_size, 0, GL_RED, GL_FLOAT, null);
+    //glGenerateMipmap(GL_TEXTURE_2D);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    return r;
+}
+
+void generate_region(uint32 tex, vec2 center) {
+    float32* height_map = malloc(region_size * region_size * sizeof float32);
+
+    for y : 0 .. region_size for x : 0 .. region_size {
+        float32 h = 0.0;
+        for i : 1 .. 6 {
+            vec2 coord = center + make_vec(x, y) + make_vec2(i*1000);
+            float32 scale = i*10;
+            h += gnoise(coord / (scale*5)) * scale;
+        }
+        height_map[y*region_size + x] = h;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, region_size, region_size, 0, GL_RED, GL_FLOAT, height_map);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    free(height_map);
+}
+
+void regenerate_heightmap(TerrainRegion* region) {
+    generate_region(region.height_map, make_vec(region.coord * region_size));
+}
+
+void render_region(TerrainRegion* region) {
+    bind_texture2D(region.height_map, 0);
+    vec2 chunk_pos = make_vec(region.coord * region_size);
+    set_uniform("chunk_pos", chunk_pos);
+    draw_elements(region_mesh);
+}
+
+
+void init_terrain() {
+
+    let plane = gen_plane(region_size, 1);
+    region_mesh = create_draw_buffers(plane);
+    free(plane.vertices);
+    free(plane.indices);
+
+    region = create_region();
+
+}
+
+
+void render_terrain() {
+    use(*ground_shader);
+
+    let center = round2multiple(xz(cam.transform.position), region_size);
+    ivec2 new_coord = make_ivec(center / region_size);
+
+    if !equals(new_coord, region.coord) {
+        region.coord = new_coord;
+        regenerate_heightmap(*region);
+        print("REGEN\n");
+    }
+
+    render_region(*region);
+}

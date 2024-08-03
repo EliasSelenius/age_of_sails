@@ -2,28 +2,12 @@
 include "../grax/grax.pog";
 
 include "kmeans.pog";
+include "src/terrain.pog";
 
 // ..\plang\bin\plang.exe src\main.pog cflags -lglfw3dll -O3
 // ..\plang\bin\plang.exe src\main.pog cflags -lglfw3dll -O0 -g -fsanitize=address -fno-omit-frame-pointer
 
 /*
-
-
-porting 'c_opengl' (the boat game) to plang:
-    <Done> - meshes
-    <Done> - OBJ importing
-    <Done> - UBO
-    <Done> - shader include directive
-    <Done> - framebuffers
-    <Done> - deffered rendering system
-    <Done> - PBR
-    <Done> - camera math
-    <Done> - physics
-    <Done> - water rendering (gerstner waves)
-    <Done> - water rendering (semi transparancy)
-    <Done> - gizmo point rendering
-    - skybox
-
 TODOs:
     - point lights
     - lantern model
@@ -147,14 +131,23 @@ void resize_framebuffers(uint32 w, h) {
 }
 
 void on_event(AppEvent event, AppEventData data) {
+
+    void reload_shader(Shader* shader) {
+        delete_shader(@shader);
+        @shader = load_shader(shader.name.chars);
+    }
+
     switch event {
         case .resize: {
             resize_framebuffers(app.window_width, app.window_height);
         } break;
         case .key_press: {
             if data.key == 'R' {
-                delete_shader(ground_shader);
-                ground_shader = load_shader("shaders/ground_mesh.glsl");
+
+                reload_shader(*skybox_shader);
+                reload_shader(*ground_shader);
+                reload_shader(*water_shader);
+
                 print("SHADER RELOAD\n");
             }
         } break;
@@ -184,6 +177,8 @@ void main() {
         Entity* e = spawn_entity(*Boate, *white_texture);
         e.tr.position = {0, 0, it * 50};
     }
+
+    init_terrain();
 
     {
         uint32 w = app.window_width;
@@ -254,14 +249,7 @@ void drawframe() {
     // render geometry
     use(*g_shader);
     render_pass_geometry();
-
-    use(*ground_shader);
-    let center = round(xz(cam.transform.position));
-    const render_dist_chunks = 10;
-    for y : -render_dist_chunks .. render_dist_chunks+1 for x : -render_dist_chunks .. render_dist_chunks+1 {
-        set_uniform("chunk_pos", center + make_vec(x, y) * chunk_size);
-        draw_elements(mesh_plane);
-    }
+    render_terrain();
 
 
     // blit depth buffer
@@ -274,9 +262,17 @@ void drawframe() {
 
     bind(hdr_buffer); clear_color(Black);
 
-    use(*skybox_shader); draw_elements(skybox); // SKYBOX
+    void update_sun_uniforms() {
+        let time = app.total_run_time / 10.0;
+        vec3 sun_dir = { cos(time), 1.5, sin(time) };
+        vec3 sun_radiance = { 3, 3, 3 };
+        set_uniform("sun_dir", normalize(sun_dir));
+        set_uniform("sun_radiance", sun_radiance);
+    }
 
-    use(*dirlight_shader); disable_depth_test(); enable_additive_blending();
+    use(*skybox_shader); update_sun_uniforms(); draw_elements(skybox); // SKYBOX
+
+    use(*dirlight_shader); update_sun_uniforms(); disable_depth_test(); enable_additive_blending();
     for 0 .. g_buffer.attachments.length  bind_texture2D(g_buffer.attachments[it].gl_handle, it as uint32);
     draw_screen_quad(); // render light volumes
 
@@ -287,9 +283,12 @@ void drawframe() {
     set_uniform("depth_factor", depth_factor);
     draw_text(vec2_zero, 0.05, to_string((depth_factor * 1000) as uint32), White);
 
+    update_sun_uniforms();
     enable_depth_test();
     enable_alpha_blending();
     bind(water_texture, 1);
+    let center = round(xz(cam.transform.position));
+    const render_dist_chunks = 10;
     for y : -render_dist_chunks .. render_dist_chunks+1 for x : -render_dist_chunks .. render_dist_chunks+1 {
         set_uniform("water_pos", center + make_vec(x, y) * chunk_size);
         draw_elements(mesh_plane);

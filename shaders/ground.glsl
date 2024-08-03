@@ -34,10 +34,10 @@ float noise(vec3 p) {
 
 float ground_height(vec3 coord) {
     float h = -40.0;
-    // for (int i = 1; i <= 5; i++) {
-    //     float scale = i*20;
-    //     h += noise((coord+vec3(i*1000)) / (scale*5)) * scale;
-    // }
+    for (int i = 1; i <= 5; i++) {
+        float scale = i*20;
+        h += noise((coord+vec3(i*1000)) / (scale*5)) * scale;
+    }
     return h;
 }
 

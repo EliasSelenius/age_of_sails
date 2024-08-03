@@ -45,8 +45,9 @@ void main() {
     gerstner_wave(coord, normalize(vec2(1, 0.6)), 0.04, 31, water_offset, tangent, binormal);
     gerstner_wave(coord, normalize(vec2(0.5, 1)), 0.1, 7, water_offset, tangent, binormal);
 
-    float gr = ground_height(vec3(coord.x, 0, coord.y));
-    float depth = gr <= 0 ? -gr : 0;
+    // float gr = ground_height(vec3(coord.x, 0, coord.y));
+    // float depth = gr <= 0 ? -gr : 0;
+    float depth = 100.0;
 
     // float scaling_factor = clamp(depth / 100.0, 0, 1);
     float scaling_factor = smoothstep(0, 1, depth / 10.0);
@@ -79,6 +80,10 @@ out vec4 FragColor;
 
 uniform float depth_factor = 0.13;
 
+uniform vec3 sun_dir;
+uniform vec3 sun_radiance;
+
+
 void main() {
     vec2 screen_uv = gl_FragCoord.xy / ViewportSize;
 
@@ -99,7 +104,7 @@ void main() {
     g.albedo = color.rgb;
     g.roughness = 0.5;
     g.metallic = 0.0;
-    vec3 light = calc_dir_light(vec3(1, 1, 1), vec3(3, 3, 3), g);
+    vec3 light = calc_dir_light(sun_dir, sun_radiance, g);
     FragColor = vec4(light, color.a);
 }
 #endif

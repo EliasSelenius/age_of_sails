@@ -18,3 +18,5 @@
 *.pdb
 *.raddbg
 *.exp
+
+shader_debug_log_*.txt
