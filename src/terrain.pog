@@ -24,7 +24,7 @@ TerrainRegion create_region() {
     set_filter(TextureFilter.linear);
 
     // glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, region_size, region_size, 0, GL_RED, GL_FLOAT, null);
-    //glGenerateMipmap(GL_TEXTURE_2D);
+    // glGenerateMipmap(GL_TEXTURE_2D);
 
     glBindTexture(GL_TEXTURE_2D, 0);
 

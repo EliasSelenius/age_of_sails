@@ -19,6 +19,49 @@ TODOs:
 */
 
 
+/* upgrade tree:
+    - max health
+    - passive health regen rate
+
+    - cannon damage
+    - cannon range
+    - cannon reload speed
+    - cannon explosiveness at impact
+
+    - boat speed
+    - boat turn speed
+
+    - cargo capacity
+    - crew capacity
+
+*/
+
+struct BoatStat {
+    uint32 max_health;
+    uint32 health_regen; // maybe make this hp/min
+
+    uint32 cannon_count; // on each side
+    uint32 cannon_damage; // damage per cannon ball
+    float32 cannon_range;
+    float32 cannon_reload_time; // seconds
+
+    float32 boat_speed; // m/s
+    float32 boat_turn_speed; // rad/s
+}
+
+BoatStat player_stat = {
+    max_health = 100,
+    health_regen = 1,
+
+    cannon_count = 8,
+    cannon_damage = 3,
+    cannon_range = 60,
+    cannon_reload_time = 3,
+
+    boat_speed = 1,
+    boat_turn_speed = 1
+};
+
 
 Camera cam = make_camera(90 * deg2rad, 0.1, 1000);
 UBO* model_ubo;
@@ -42,6 +85,7 @@ Texture2D water_texture;
 
 DrawBuffers pyramid;
 DrawBuffers Boate;
+DrawBuffers Boat2;
 DrawBuffers firstTownscaper;
 DrawBuffers mesh_plane;
 DrawBuffers skybox;
@@ -64,6 +108,7 @@ void loadassets() {
 
     pyramid = load_drawable("../shared_assets/pyramid.obj");
     Boate = load_drawable("../shared_assets/Boate_Smooth.obj");
+    Boat2 = load_drawable("../shared_assets/Boat2.obj");
 
     {
         OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
@@ -124,10 +169,34 @@ void loadassets() {
 
 }
 
+struct World {
+    Entity* town;
+    Entity* player_boat;
+    Entity* boat2;
+}
 
-void resize_framebuffers(uint32 w, h) {
-    resize(*g_buffer, w, h);
-    resize(*hdr_buffer, w, h);
+World world = {};
+
+void spawn_world() {
+    cam.transform.position = { 0, 0, -10 };
+
+    spawn_entity(*pyramid, *test_color_texture).tr.position = {30, 0, 0};
+
+    world.town = spawn_entity(*firstTownscaper, *town_texture);
+    world.town.tr.position = { 100, -5, 0 };
+    world.town.has_buoyancy = false;
+
+
+    world.player_boat = spawn_entity(*Boate, *test_color_texture);
+    world.player_boat.tr.position = {-20, 0, 0};
+
+    for 1 .. 10 {
+        Entity* e = spawn_entity(*Boate, *white_texture);
+        e.tr.position = {0, 0, it * 50};
+    }
+
+    world.boat2 = spawn_entity(*Boat2, *white_texture);
+    world.boat2.tr.scale = vec3_one * 1.5;
 }
 
 void on_event(AppEvent event, AppEventData data) {
@@ -139,7 +208,8 @@ void on_event(AppEvent event, AppEventData data) {
 
     switch event {
         case .resize: {
-            resize_framebuffers(app.window_width, app.window_height);
+            resize(*g_buffer, app.window_width, app.window_height);
+            resize(*hdr_buffer, app.window_width, app.window_height);
         } break;
         case .key_press: {
             if data.key == 'R' {
@@ -162,22 +232,7 @@ void main() {
     loadassets();
     model_ubo = get_ubo("Instances");
 
-    cam.transform.position = { 0, 0, -10 };
-
-
-    spawn_entity(*pyramid, *test_color_texture).tr.position = {30, 0, 0};
-    let town = spawn_entity(*firstTownscaper, *town_texture);
-    town.tr.position = { 100, -5, 0 };
-    town.has_buoyancy = false;
-    Entity* boat = spawn_entity(*Boate, *test_color_texture);
-    uint32 boat_index = list_length(entities) - 1;
-    boat.tr.position = {-20, 0, 0};
-
-    for 1 .. 10 {
-        Entity* e = spawn_entity(*Boate, *white_texture);
-        e.tr.position = {0, 0, it * 50};
-    }
-
+    spawn_world();
     init_terrain();
 
     {
@@ -224,13 +279,21 @@ void main() {
             const torque = 0.05;
             const force = 0.2;
 
-            let e = *entities[boat_index];
+            let e = world.player_boat;
             if key(GLFW_KEY_RIGHT) add_torque(*e.rb, {0, torque, 0} as vec3);
             if key(GLFW_KEY_LEFT)  add_torque(*e.rb, {0, -torque, 0} as vec3);
 
-            if key(GLFW_KEY_UP) add_force(*e.rb, forward(e.tr) * force);
+            if key(GLFW_KEY_UP) add_force(*e.rb, forward(e.tr) * force * player_stat.boat_speed);
             if key(GLFW_KEY_DOWN) add_force(*e.rb, {0, 1, 0} as vec3);
+
+
+            if mouse(Left_Mouse) {
+                // spawn_cannonball(cam.transform.position, vec3_unit_z * player_stat.cannon_range, player_stat.cannon_damage);
+                fire_cannons(e);
+            }
         }
+
+        gizmo_transform(*world.town.tr, cam);
 
         drawframe();
 
@@ -249,7 +312,7 @@ void drawframe() {
     // render geometry
     use(*g_shader);
     render_pass_geometry();
-    render_terrain();
+    // render_terrain();
 
 
     // blit depth buffer
@@ -304,6 +367,15 @@ void drawframe() {
 }
 
 
+void camera_boat_control(Entity* e, Camera* cam) {
+
+    static vec3 cam_offset = {};
+
+    cam.transform.position = e.tr.position + cam_offset;
+
+    look_at(*cam.transform, e.tr.position, vec3_unit_y);
+}
+
 
 // wave direction must be normalized
 void gerstner_wave(vec2 coord, dir, float32 steepness, wave_length, vec3* pos, tangent, binormal) {
@@ -340,48 +412,25 @@ float32 approx_water_height(vec2 coord) {
     return point.y;
 }
 
-struct Rigidbody {
-    float32 mass;
-    vec3 velocity;
-    vec3 angular_velocity;
+
+struct Particle {
+    vec3 pos, vel;
 }
-
-void add_force(with Rigidbody* rb, vec3 force) {
-    rb.velocity = rb.velocity + force * (1.0 / rb.mass);
-}
-
-void add_force(with Rigidbody* rb, vec3 force, offset) {
-    add_force(rb, force);
-    // TODO: cross(force, offset) is angular acceleration, not torque?
-    add_torque(rb, cross(force, offset));
-}
-
-void add_torque(with Rigidbody* rb, vec3 torque) {
-    // TODO: mass / inertia ?
-    rb.angular_velocity = rb.angular_velocity + torque;
-}
-
-void update_physics(with Transform* tr, with Rigidbody* rb, float32 dt) {
-    tr.position = tr.position + rb.velocity * dt;
-
-    let axis = rb.angular_velocity;
-    let angle = length(axis);
-    if angle != 0 {
-        axis = axis * (1.0 / angle); // normalizes
-        rotate(tr, axis, angle * dt);
-    }
-}
-
 
 struct Entity {
     Texture2D* texture;
     DrawBuffers* db;
     with Transform tr;
     with Rigidbody rb;
+
+    float32 cannon_reload;
+    bool sails_unfurled;
     bool has_buoyancy;
 }
 
-Entity* entities = list_create(sizeof Entity);
+// Entity* entities = list_create(sizeof Entity);
+Entity* entities = malloc(1000 * sizeof Entity);
+uint32 entities_count = 0;
 
 Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     Entity e = {};
@@ -394,11 +443,42 @@ Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
 
     e.has_buoyancy = true;
 
-    return list_add(*entities, *e);
+    // return list_add(*entities, *e);
+    let res = *entities[entities_count++];
+    @res = e;
+    return res;
+}
+
+struct CannonBall { vec3 pos, vel; uint32 damage; }
+CannonBall* cannon_balls = list_create(sizeof CannonBall);
+
+void spawn_cannonball(vec3 pos, vel, uint32 damage) {
+    CannonBall ball = { pos, vel, damage };
+    list_add(*cannon_balls, *ball);
+}
+
+void fire_cannons(Entity* boat) {
+    if boat.cannon_reload > 0  return;
+    boat.cannon_reload = player_stat.cannon_reload_time;
+
+    let model = to_matrix(boat.tr);
+
+    vec3 left    = xyz(model.row1);
+    vec3 up      = xyz(model.row2);
+    vec3 forward = xyz(model.row3);
+
+    vec3 dir = left + vec3_unit_y*0.2;
+    uint32 cc = player_stat.cannon_count;
+    for 0 .. cc {
+        vec3 pos = boat.tr.position + left*3 + up*2 + forward*(it - cc/2 as float32)*3;
+        spawn_cannonball(pos, dir * player_stat.cannon_range, player_stat.cannon_damage);
+    }
 }
 
 void update(Entity* e) {
     let dt = deltatime();
+
+    if e.cannon_reload > 0   e.cannon_reload -= dt;
 
     if e.has_buoyancy {
         e.rb.velocity.y -= 9.8 * dt; // gravity
@@ -440,7 +520,7 @@ void update(Entity* e) {
         }
     }
 
-    update_physics(*e.tr, *e.rb, dt);
+    update_rigidbody_transform(*e.tr, *e.rb, dt);
 }
 
 void render(Entity* e) {
@@ -451,7 +531,8 @@ void render(Entity* e) {
 }
 
 void render_entities() {
-    for 0 .. list_length(entities) {
+    // for 0 .. list_length(entities) {
+    for 0 .. entities_count {
         update(*entities[it]);
         render(*entities[it]);
     }
@@ -459,6 +540,28 @@ void render_entities() {
 
 void render_pass_geometry() {
     render_entities();
+
+    let dt = deltatime();
+
+    uint32 cannon_balls_count = list_length(cannon_balls);
+    for 0 .. cannon_balls_count {
+        CannonBall* ball = *cannon_balls[it];
+        ball.vel.y -= 9.8 * dt; // gravity
+        ball.pos = ball.pos + ball.vel * dt;
+
+        mat4 model = make_mat4(ball.pos, 0.2);
+        update_buffer(model_ubo.buffer_id, sizeof mat4, *model);
+        draw_elements(skybox);
+    }
+
+    for 0 .. cannon_balls_count {
+        CannonBall* ball = *cannon_balls[it];
+        if ball.pos.y < approx_water_height(xz(ball.pos)) {
+            list_unordered_remove(cannon_balls, it);
+            it--;
+            cannon_balls_count--;
+        }
+    }
 
     for y: 0 .. 10 for x: 0 .. 10 {
         vec2 coord = make_vec(x, y);
