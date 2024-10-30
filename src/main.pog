@@ -312,7 +312,7 @@ void drawframe() {
     // render geometry
     use(*g_shader);
     render_pass_geometry();
-    // render_terrain();
+    render_terrain();
 
 
     // blit depth buffer

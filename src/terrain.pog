@@ -1,18 +1,26 @@
 
 
 const region_size = 400;
+const region_count = 7;
+
 
 DrawBuffers region_mesh;
 
-TerrainRegion region;
+const regions_array_size = region_count * region_count;
+TerrainRegion[regions_array_size] regions;
 
 struct TerrainRegion {
     uint32 height_map;
     ivec2 coord;
+
+    Color color;
 }
 
 TerrainRegion create_region() {
     TerrainRegion r = {};
+
+    r.coord = {99, 99};
+
     glGenTextures(1, *r.height_map);
     glBindTexture(GL_TEXTURE_2D, r.height_map);
 
@@ -32,20 +40,23 @@ TerrainRegion create_region() {
 }
 
 void generate_region(uint32 tex, vec2 center) {
-    float32* height_map = malloc(region_size * region_size * sizeof float32);
+    int32 lod = 10;
+    int32 res = region_size / lod;
 
-    for y : 0 .. region_size for x : 0 .. region_size {
+    float32* height_map = malloc(res * res * sizeof float32);
+
+    for y : 0 .. res for x : 0 .. res {
         float32 h = 0.0;
         for i : 1 .. 6 {
-            vec2 coord = center + make_vec(x, y) + make_vec2(i*1000);
+            vec2 coord = center + make_vec(x * lod, y * lod) + make_vec2(i*1000);
             float32 scale = i*10;
             h += gnoise(coord / (scale*5)) * scale;
         }
-        height_map[y*region_size + x] = h;
+        height_map[y*res + x] = h;
     }
 
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, region_size, region_size, 0, GL_RED, GL_FLOAT, height_map);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, res, res, 0, GL_RED, GL_FLOAT, height_map);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     free(height_map);
@@ -60,6 +71,10 @@ void render_region(TerrainRegion* region) {
     vec2 chunk_pos = make_vec(region.coord * region_size);
     set_uniform("chunk_pos", chunk_pos);
     draw_elements(region_mesh);
+
+    vec3 pos = {chunk_pos.x, 30, chunk_pos.y};
+    gizmo_current_color = region.color;
+    gizmo_sphere(pos, region_size / 100);
 }
 
 
@@ -70,22 +85,61 @@ void init_terrain() {
     free(plane.vertices);
     free(plane.indices);
 
-    region = create_region();
+    Color[] colors = {White, Gray, Black, Red, Green, Blue, Yellow, Cyan, Purple};
+
+    for 0 .. region_count * region_count {
+        regions[it] = create_region();
+        regions[it].color = colors[it % colors.length];
+    }
 
 }
 
-
 void render_terrain() {
-    use(*ground_shader);
 
     let center = round2multiple(xz(cam.transform.position), region_size);
-    ivec2 new_coord = make_ivec(center / region_size);
+    ivec2 camera_coord = make_ivec(center / region_size);
 
-    if !equals(new_coord, region.coord) {
-        region.coord = new_coord;
-        regenerate_heightmap(*region);
-        print("REGEN\n");
+    static ivec2 prev_camera_coord = {99, 99};
+
+    if !equals(camera_coord, prev_camera_coord) {
+
+        int32 r = region_count / 2;
+        for y: -r .. r+1  for x: -r .. r+1 {
+            ivec2 coord = camera_coord + {x, y};
+
+            for 0 .. regions_array_size {
+                let chunk = *regions[it];
+                if equals(chunk.coord, coord) goto skip;
+            }
+
+            // there is no chunk with a coord equal to `coord`.
+            // We must find a chunk that is out of view distance that we can regenerate.
+
+            TerrainRegion* new_chunk = null;
+
+            for 0 .. regions_array_size {
+                let chunk = *regions[it];
+                let rel_coord = chunk.coord - camera_coord;
+                if rel_coord.x < -r or rel_coord.x > r
+                or rel_coord.y < -r or rel_coord.y > r {
+                    new_chunk = chunk;
+                    break;
+                }
+            }
+
+            new_chunk.coord = coord;
+            regenerate_heightmap(new_chunk);
+
+            skip:
+        }
+
+        prev_camera_coord = camera_coord;
+
+        // print("\n");
     }
 
-    render_region(*region);
+    use(*ground_shader);
+    for 0 .. region_count * region_count {
+        render_region(*regions[it]);
+    }
 }
