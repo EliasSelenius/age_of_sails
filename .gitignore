@@ -20,3 +20,4 @@
 *.exp
 
 shader_debug_log_*.txt
+output.g.c
