@@ -41,19 +41,22 @@ void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, fl
 }
 
 vec4 get_terrain() {
-    float h1 = texture(height_map, a_Uv).r;
+    float height_map_res = 42;
 
-    float d = 10;
-    float h2 = texture(height_map, a_Uv + vec2(d, 0) / 400.0).r;
-    float h3 = texture(height_map, a_Uv + vec2(0, d) / 400.0).r;
-    float h4 = texture(height_map, a_Uv + vec2(-d, 0) / 400.0).r;
-    float h5 = texture(height_map, a_Uv + vec2(0, -d) / 400.0).r;
+    float r = 1.0 / height_map_res;
+    vec2 uv = r + a_Uv * (height_map_res - 2) / height_map_res;
+
+    float h1 = texture(height_map, uv).r;
+    float h2 = texture(height_map, uv + vec2(r, 0)).r;
+    float h3 = texture(height_map, uv + vec2(0, r)).r;
+    float h4 = texture(height_map, uv + vec2(-r, 0)).r;
+    float h5 = texture(height_map, uv + vec2(0, -r)).r;
 
     vec3 p1 = vec3(0,  h1,  0);
-    vec3 p2 = vec3(d,  h2,  0);
-    vec3 p3 = vec3(0,  h3,  d);
-    vec3 p4 = vec3(-d, h4,  0);
-    vec3 p5 = vec3(0,  h5, -d);
+    vec3 p2 = vec3(r,  h2,  0);
+    vec3 p3 = vec3(0,  h3,  r);
+    vec3 p4 = vec3(-r, h4,  0);
+    vec3 p5 = vec3(0,  h5, -r);
 
     /*
         p3
@@ -86,7 +89,7 @@ void main() {
     gerstner_wave(0, coord, normalize(vec2(1, 1.3)), 0.25 * wave_steepness, 18, water_offset, tangent, binormal);
     gerstner_wave(0, coord, normalize(vec2(1, 0.6)), 0.04 * wave_steepness, 31, water_offset, tangent, binormal);
     gerstner_wave(0, coord, normalize(vec2(0.5, 1)), 0.10 * wave_steepness, 7,  water_offset, tangent, binormal);
-    gerstner_wave(-depth, vec2(0), shore_dir,        0.35 * shore_wave_steepness, 10, water_offset, tangent, binormal);
+    // gerstner_wave(-depth, vec2(0), shore_dir,        0.35 * shore_wave_steepness, 10, water_offset, tangent, binormal);
 
 
     vec3 normal = normalize(cross(binormal, tangent));
@@ -132,6 +135,8 @@ void main() {
     vec3 sun_dir      = camera.sun_dir.xyz;
     vec3 sun_radiance = camera.sun_radiance.xyz;
     vec3 light = calc_dir_light(sun_dir, sun_radiance, g);
+    float ambient = camera.sun_radiance.w;
+    light += sun_radiance * g.albedo * ambient;
 
     FragColor = vec4(light, color.a);
 }

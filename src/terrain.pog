@@ -41,7 +41,7 @@ TerrainRegion create_region() {
 
 void generate_region(uint32 tex, vec2 center) {
     int32 lod = 10;
-    int32 res = region_size / lod + 1; // TODO: +1 here is to replace ugly seam with a less ugly seam
+    int32 res = region_size / lod + 2; // +2 here is to make chunk aware of the heights of the edges of neighboring chunks to remove ugly seam
 
     float32* height_map = malloc(res * res * sizeof float32);
 
@@ -70,7 +70,9 @@ void render_region(TerrainRegion* region) {
     bind_texture2D(region.height_map, 0);
     vec2 chunk_pos = make_vec(region.coord * region_size);
     set_uniform("chunk_pos", chunk_pos);
+    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     draw_elements(region_mesh);
+    // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
     vec3 pos = {chunk_pos.x, 30, chunk_pos.y};
     gizmo_current_color = region.color;
