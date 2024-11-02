@@ -41,7 +41,7 @@ TerrainRegion create_region() {
 
 void generate_region(uint32 tex, vec2 center) {
     int32 lod = 10;
-    int32 res = region_size / lod;
+    int32 res = region_size / lod + 1; // TODO: +1 here is to replace ugly seam with a less ugly seam
 
     float32* height_map = malloc(res * res * sizeof float32);
 

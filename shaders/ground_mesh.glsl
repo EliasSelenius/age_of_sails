@@ -23,20 +23,39 @@ void main() {
     vec4 pos = vec4(a_Pos, 1.0);
     pos.xz += chunk_pos;
 
-    vec3 normal = vec3(0, 1, 0);
-    // float h = texelFetch(height_map, ivec2(pos.xz)+ivec2(0), 0).r;
-    float region_size = 400.0;
-    // float h = texture(height_map, (pos.xz + vec2(region_size / 2)) / region_size).r;
-    float h = texture(height_map, a_Uv).r;
+    float h1 = texture(height_map, a_Uv).r;
 
-    pos.y = h;
-    v2f.height = h;
+    float d = 10;
+    float h2 = texture(height_map, a_Uv + vec2(d, 0) / 400.0).r;
+    float h3 = texture(height_map, a_Uv + vec2(0, d) / 400.0).r;
+    float h4 = texture(height_map, a_Uv + vec2(-d, 0) / 400.0).r;
+    float h5 = texture(height_map, a_Uv + vec2(0, -d) / 400.0).r;
+
+    vec3 p1 = vec3(0,  h1,  0);
+    vec3 p2 = vec3(d,  h2,  0);
+    vec3 p3 = vec3(0,  h3,  d);
+    vec3 p4 = vec3(-d, h4,  0);
+    vec3 p5 = vec3(0,  h5, -d);
+
+    /*
+        p3
+    p4  p1  p2
+        p5
+    */
+
+    vec3 normal = normalize(cross(p3 - p1, p2 - p1) +
+                            cross(p4 - p1, p3 - p1) +
+                            cross(p5 - p1, p4 - p1) +
+                            cross(p2 - p1, p5 - p1));
+
+
+    pos.y = h1;
+    v2f.height = h1;
 
 
 
     pos = camera.view * pos;
     v2f.pos = pos.xyz;
-    // v2f.normal = mat3(camera.view) * a_Normal;
     v2f.normal = mat3(camera.view) * normal;
     v2f.uv = a_Uv;
 
@@ -47,14 +66,17 @@ void main() {
 #endif
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-layout (location = 0) out vec3 FragPos;
-layout (location = 1) out vec3 FragNormal;
+layout (location = 0) out vec4 FragPos_Metallic;
+layout (location = 1) out vec4 FragNormal_Roughness;
 layout (location = 2) out vec3 FragColor;
 
-
 void main() {
-    FragPos = v2f.pos;
-    FragNormal = normalize(v2f.normal);
+    FragPos_Metallic.xyz = v2f.pos;
+    FragPos_Metallic.w   = 0;
+
+    FragNormal_Roughness.xyz = normalize(v2f.normal);
+    FragNormal_Roughness.w   = 0.9;
+
     FragColor = vec3(fract(v2f.height)) + vec3(v2f.uv, 0.0);
 }
 

@@ -1,17 +1,19 @@
 
+#include "../grax/shaders/camera.glsl"
+
+
 IO FragData {
     vec3 pos;
 } v2f;
 
-#ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "../grax/shaders/camera.glsl"
+
+#ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 layout (location = 0) in vec3 a_Pos;
 
 void main() {
     v2f.pos = a_Pos;
-    // gl_Position = camera.projection * camera.view * vec4(a_Pos, 0);
 
     vec4 clip_pos = camera.projection * mat4(mat3(camera.view)) * vec4(a_Pos, 1);
     gl_Position = clip_pos.xyww;
@@ -28,10 +30,12 @@ void main() {
 
 out vec4 FragColor;
 
-uniform vec3 sun_dir;
-uniform vec3 sun_radiance;
 
 void main() {
+
+    vec3 sun_dir      = camera.sun_dir.xyz;
+    vec3 sun_radiance = camera.sun_radiance.xyz;
+
     vec3 sky_dir = normalize(v2f.pos);
 
     float fCos = dot(sun_dir, -sky_dir);
