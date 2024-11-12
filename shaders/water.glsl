@@ -41,22 +41,26 @@ void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, fl
 }
 
 vec4 get_terrain() {
-    float height_map_res = 42;
+    float region_size = 400;
+
+    float height_map_res = region_size / 10.0 + 2.0;
 
     float r = 1.0 / height_map_res;
     vec2 uv = r + a_Uv * (height_map_res - 2) / height_map_res;
 
-    float h1 = texture(height_map, uv).r;
-    float h2 = texture(height_map, uv + vec2(r, 0)).r;
-    float h3 = texture(height_map, uv + vec2(0, r)).r;
-    float h4 = texture(height_map, uv + vec2(-r, 0)).r;
-    float h5 = texture(height_map, uv + vec2(0, -r)).r;
+    float g = 1.0 / (region_size+1);
+    float h1 = texture(height_map, uv).x;
+    float h2 = texture(height_map, uv + vec2(g, 0)).x;
+    float h3 = texture(height_map, uv + vec2(0, g)).x;
+    float h4 = texture(height_map, uv + vec2(-g, 0)).x;
+    float h5 = texture(height_map, uv + vec2(0, -g)).x;
 
+    float d = (region_size+1) * g;
     vec3 p1 = vec3(0,  h1,  0);
-    vec3 p2 = vec3(r,  h2,  0);
-    vec3 p3 = vec3(0,  h3,  r);
-    vec3 p4 = vec3(-r, h4,  0);
-    vec3 p5 = vec3(0,  h5, -r);
+    vec3 p2 = vec3(d,  h2,  0);
+    vec3 p3 = vec3(0,  h3,  d);
+    vec3 p4 = vec3(-d, h4,  0);
+    vec3 p5 = vec3(0,  h5, -d);
 
     /*
         p3
@@ -81,6 +85,8 @@ void main() {
     float wave_steepness = scaling_factor;
     float shore_wave_steepness = 1 - wave_steepness;
 
+    // shore_wave_steepness *= step(dot(terrain.xyz, vec3(0, 1, 0)), 0.99);
+
     vec3 water_offset = vec3(0, 0, 0);
     vec3 tangent  = vec3(1, 0, 0);
     vec3 binormal = vec3(0, 0, 1);
@@ -89,7 +95,7 @@ void main() {
     gerstner_wave(0, coord, normalize(vec2(1, 1.3)), 0.25 * wave_steepness, 18, water_offset, tangent, binormal);
     gerstner_wave(0, coord, normalize(vec2(1, 0.6)), 0.04 * wave_steepness, 31, water_offset, tangent, binormal);
     gerstner_wave(0, coord, normalize(vec2(0.5, 1)), 0.10 * wave_steepness, 7,  water_offset, tangent, binormal);
-    // gerstner_wave(-depth, vec2(0), shore_dir,        0.35 * shore_wave_steepness, 10, water_offset, tangent, binormal);
+    gerstner_wave(-depth, vec2(0), shore_dir,        0.25 * shore_wave_steepness, 10, water_offset, tangent, binormal);
 
 
     vec3 normal = normalize(cross(binormal, tangent));

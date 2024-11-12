@@ -8,12 +8,11 @@ IO FragData {
 
 #ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "shaders/ground.glsl"
+#include "../grax/shaders/noise.glsl"
 #include "../grax/shaders/camera.glsl"
 
 uniform vec2 chunk_pos;
 uniform sampler2D height_map;
-
 
 layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
@@ -25,17 +24,19 @@ vec4 get_terrain() {
     float r = 1.0 / height_map_res;
     vec2 uv = r + a_Uv * (height_map_res - 2) / height_map_res;
 
-    float h1 = texture(height_map, uv).r;
-    float h2 = texture(height_map, uv + vec2(r, 0)).r;
-    float h3 = texture(height_map, uv + vec2(0, r)).r;
-    float h4 = texture(height_map, uv + vec2(-r, 0)).r;
-    float h5 = texture(height_map, uv + vec2(0, -r)).r;
+    float g = 1.0 / (401);
+    float h1 = texture(height_map, uv).x;
+    float h2 = texture(height_map, uv + vec2(g, 0)).x;
+    float h3 = texture(height_map, uv + vec2(0, g)).x;
+    float h4 = texture(height_map, uv + vec2(-g, 0)).x;
+    float h5 = texture(height_map, uv + vec2(0, -g)).x;
 
+    float d = 1;
     vec3 p1 = vec3(0,  h1,  0);
-    vec3 p2 = vec3(r,  h2,  0);
-    vec3 p3 = vec3(0,  h3,  r);
-    vec3 p4 = vec3(-r, h4,  0);
-    vec3 p5 = vec3(0,  h5, -r);
+    vec3 p2 = vec3(d,  h2,  0);
+    vec3 p3 = vec3(0,  h3,  d);
+    vec3 p4 = vec3(-d, h4,  0);
+    vec3 p5 = vec3(0,  h5, -d);
 
     /*
         p3

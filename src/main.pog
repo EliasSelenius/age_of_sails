@@ -63,12 +63,12 @@ BoatStat player_stat = {
     cannon_range = 60,
     cannon_reload_time = 3,
 
-    boat_speed = 1,
-    boat_turn_speed = 1
+    boat_speed = 200,
+    boat_turn_speed = 300
 };
 
 
-Camera cam = make_camera(90 * deg2rad, 0.1, 1000);
+Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 
 Shader water_shader;
 Shader ground_shader;
@@ -82,9 +82,6 @@ DrawBuffers pyramid;
 DrawBuffers Boate;
 DrawBuffers Boat2;
 DrawBuffers firstTownscaper;
-DrawBuffers mesh_plane;
-
-const chunk_size = 100;
 
 
 void loadassets() {
@@ -118,11 +115,6 @@ void loadassets() {
         list_delete(mesh.vertices);
         free(mesh.indices);
     }
-
-    let plane = gen_plane(chunk_size, 10);
-    mesh_plane = create_draw_buffers(plane);
-    free(plane.vertices);
-    free(plane.indices);
 
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
     town_texture = load_texture2D("../shared_assets/TownColor.bmp");
@@ -186,6 +178,9 @@ void on_event(AppEvent event, AppEventData data) {
     }
 }
 
+enum GameViewMode { BoatControl; FreeCam; }
+GameViewMode game_view_mode = .BoatControl;
+
 void main() {
     app.on_event = on_event;
     grax_init();
@@ -202,31 +197,40 @@ void main() {
     init_terrain();
 
     while grax_loop() {
-        camera_fly_control(*cam);
+        float32 dt = deltatime();
 
-        if mouse(Left_Mouse) {
-            vec2 text_pos = screen2ndc(mouse_x as float32, mouse_y as float32);
-            text_pos.x *= app.width_over_height;
-            // TODO: use Input.mouse_pos
-            draw_text(text_pos, 0.05, "Click!", White);
+        switch game_view_mode {
+            case .BoatControl: {
+                camera_orbit_control(*cam, world.player_boat.tr.position);
+
+                const torque = 5;
+                const force = 0.2;
+
+                let e = world.player_boat;
+                if key('D') add_torque(*e.rb, ({0, torque, 0} as vec3) * dt);
+                if key('A') add_torque(*e.rb, ({0, -torque, 0} as vec3) * dt);
+
+                if key('W') add_force(*e.rb, forward(e.tr) * force * player_stat.boat_speed * dt);
+                if key('S') add_force(*e.rb, {0, 1, 0} as vec3);
+
+
+                if mouse(Left_Mouse) {
+                    // spawn_cannonball(cam.transform.position, vec3_unit_z * player_stat.cannon_range, player_stat.cannon_damage);
+                    fire_cannons(e);
+                }
+
+                if key_pressed(GLFW_KEY_ENTER) game_view_mode = .FreeCam;
+
+            } break;
+
+            case .FreeCam: {
+                camera_fly_control(*cam);
+                if key_pressed(GLFW_KEY_ENTER) game_view_mode = .BoatControl;
+            } break;
         }
 
-        { // temp boat controll
-            const torque = 0.05;
-            const force = 0.2;
-
-            let e = world.player_boat;
-            if key(GLFW_KEY_RIGHT) add_torque(*e.rb, {0, torque, 0} as vec3);
-            if key(GLFW_KEY_LEFT)  add_torque(*e.rb, {0, -torque, 0} as vec3);
-
-            if key(GLFW_KEY_UP) add_force(*e.rb, forward(e.tr) * force * player_stat.boat_speed);
-            if key(GLFW_KEY_DOWN) add_force(*e.rb, {0, 1, 0} as vec3);
-
-
-            if mouse(Left_Mouse) {
-                // spawn_cannonball(cam.transform.position, vec3_unit_z * player_stat.cannon_range, player_stat.cannon_damage);
-                fire_cannons(e);
-            }
+        if mouse(Left_Mouse) {
+            draw_text(Input.mouse_pos, 0.05, "Click!", White);
         }
 
         gizmo_transform(*world.town.tr, cam);
@@ -290,10 +294,10 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     { // water
         use(*water_shader);
 
-        static float32 depth_factor = 0.05;
-        depth_factor += mouse_scroll / 100.0;
+        static float32 depth_factor = 0.1;
+        // depth_factor += mouse_scroll / 100.0;
         set_uniform("depth_factor", depth_factor);
-        draw_text(vec2_zero, 0.05, to_string((depth_factor * 1000) as uint32), White);
+        // draw_text(vec2_zero, 0.05, to_string((depth_factor * 1000) as uint32), White);
 
 
         enable_depth_test();
@@ -304,9 +308,9 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             let chunk = *regions[it];
 
             bind_texture2D(chunk.height_map, 2);
-            vec2 chunk_pos = make_vec(chunk.coord * region_size);
+            vec2 chunk_pos = make_vec(chunk.coord * (region_size));
             set_uniform("water_pos", chunk_pos);
-            draw_elements(region_mesh);
+            draw_elements(chunk_meshes[chunk.lod]);
         }
 
         if false {
@@ -320,16 +324,6 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     }
 
     end_frame(R);
-}
-
-
-void camera_boat_control(Entity* e, Camera* cam) {
-
-    static vec3 cam_offset = {};
-
-    cam.transform.position = e.tr.position + cam_offset;
-
-    look_at(*cam.transform, e.tr.position, vec3_unit_y);
 }
 
 
