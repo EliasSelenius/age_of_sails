@@ -11,7 +11,6 @@ include "src/terrain.pog";
 TODOs:
     - point lights
     - lantern model
-    - line segment rendering
     - whale model
     - boat controller
     - non-repetitive pattern in water
@@ -20,7 +19,20 @@ TODOs:
 
     - automatic generation of buoyancy points
     - automatic mass calculation. (Calculate volume of mesh)
-    
+
+
+    Today:
+    - capsule collision
+    - cannon aim
+
+
+    what to do for minimal viable product:
+        - cannon aim/fire
+        - boat sinking
+        - ai ships that fire back
+        - finnished boat model
+
+
 */
 
 
@@ -83,8 +95,33 @@ DrawBuffers Boate;
 DrawBuffers Boat2;
 DrawBuffers firstTownscaper;
 
+Capsule Boate_Capsule;
+
+struct Capsule {
+    vec3 a, b;
+    float32 radius;
+}
+
+Capsule boat_collider_from_mesh(Mesh m) {
+    Capsule c = {};
+    c.radius = m.bb_max.x;
+    c.a.z = m.bb_min.z + c.radius;
+    c.b.z = m.bb_max.z - c.radius;
+    return c;
+}
 
 void loadassets() {
+
+    Mesh load_mesh(char* name) {
+        OBJ_Data obj = load_obj(name);
+        Mesh mesh = obj_to_mesh(obj);
+        free_obj(obj);
+        gen_normals(mesh);
+        calc_bounds(*mesh);
+
+        return mesh;
+    }
+
     DrawBuffers load_drawable(char* name) {
         OBJ_Data obj = load_obj(name);
         // Mesh mesh = obj_to_flatshaded_mesh(obj);
@@ -93,14 +130,23 @@ void loadassets() {
         gen_normals(mesh);
         DrawBuffers db = create_draw_buffers(mesh);
 
+        // TODO: this is terrible, we must change definition of Mesh such that vertices and indices are dynamic arrays
         list_delete(mesh.vertices);
         free(mesh.indices);
         return db;
     }
 
     pyramid = load_drawable("../shared_assets/pyramid.obj");
-    Boate = load_drawable("../shared_assets/Boate_Smooth.obj");
     Boat2 = load_drawable("../shared_assets/Boat2.obj");
+
+    Mesh Boate_Mesh = load_mesh("../shared_assets/Boate_Smooth.obj");
+    Boate = create_draw_buffers(Boate_Mesh);
+
+    Boate_Capsule = boat_collider_from_mesh(Boate_Mesh);
+
+    // TODO: this is terrible, we must change definition of Mesh such that vertices and indices are dynamic arrays
+    list_delete(Boate_Mesh.vertices);
+    free(Boate_Mesh.indices);
 
     {
         OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
@@ -138,23 +184,23 @@ World world = {};
 void spawn_world() {
     cam.transform.position = { 0, 0, -10 };
 
-    spawn_entity(*pyramid, *test_color_texture).tr.position = {30, 0, 0};
+    // spawn_entity(*pyramid, *test_color_texture).tr.position = {30, 0, 0};
 
-    world.town = spawn_entity(*firstTownscaper, *town_texture);
-    world.town.tr.position = { 100, -5, 0 };
-    world.town.has_buoyancy = false;
+    // world.town = spawn_entity(*firstTownscaper, *town_texture);
+    // world.town.tr.position = { 100, -5, 0 };
+    // world.town.has_buoyancy = false;
 
 
     world.player_boat = spawn_entity(*Boate, *test_color_texture);
     world.player_boat.tr.position = {-20, 0, 0};
 
-    for 1 .. 10 {
+    for 1 .. 2 {
         Entity* e = spawn_entity(*Boate, *white_texture);
         e.tr.position = {0, 0, it * 50};
     }
 
-    world.boat2 = spawn_entity(*Boat2, *white_texture);
-    world.boat2.tr.scale = vec3_one * 1.5;
+    // world.boat2 = spawn_entity(*Boat2, *white_texture);
+    // world.boat2.tr.scale = vec3_one * 1.5;
 }
 
 void on_event(AppEvent event, AppEventData data) {
@@ -221,6 +267,9 @@ void main() {
 
                 if key_pressed(GLFW_KEY_ENTER) game_view_mode = .FreeCam;
 
+                float32 speed = length(world.player_boat.rb.velocity);
+                draw_text({0,0}as vec2, 0.04, to_string(speed as uint32), White);
+
             } break;
 
             case .FreeCam: {
@@ -233,7 +282,7 @@ void main() {
             draw_text(Input.mouse_pos, 0.05, "Click!", White);
         }
 
-        gizmo_transform(*world.town.tr, cam);
+        // gizmo_transform(*world.town.tr, cam);
 
         update_world();
         draw_world(R, cam);
@@ -376,6 +425,11 @@ struct Entity {
     float32 cannon_reload;
     bool sails_unfurled;
     bool has_buoyancy;
+
+    bool highlight;
+
+    vec3 capsule_a, capsule_b;
+    float32 capsule_radius;
 }
 
 // Entity* entities = list_create(sizeof Entity);
@@ -392,6 +446,10 @@ Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     e.rb.mass = 1;
 
     e.has_buoyancy = true;
+
+    e.capsule_a = Boate_Capsule.a;
+    e.capsule_b = Boate_Capsule.b;
+    e.capsule_radius = Boate_Capsule.radius;
 
     // return list_add(*entities, *e);
     let res = *entities[entities_count++];
@@ -425,15 +483,18 @@ void fire_cannons(Entity* boat) {
     }
 }
 
-void update(Entity* e, float32 dt) {
+/*
+    40 = velocity
+*/
 
+void update(Entity* e, float32 dt) {
     if e.cannon_reload > 0   e.cannon_reload -= dt;
 
     if e.has_buoyancy {
         e.rb.velocity.y -= 9.8 * dt; // gravity
     }
 
-    float32 damp_factor = 1.0;
+    float32 damp_factor = 1;
     e.rb.velocity = e.rb.velocity - e.rb.velocity * damp_factor * dt;
 
     float32 angular_damp = 5;
@@ -470,4 +531,36 @@ void update(Entity* e, float32 dt) {
     }
 
     update_rigidbody_transform(*e.tr, *e.rb, dt);
+
+
+    {
+        let em = to_matrix(e.tr);
+        vec3 a = xyz(mul(make_vec(e.capsule_a, 1), em));
+        vec3 b = xyz(mul(make_vec(e.capsule_b, 1), em));
+
+        for 0 .. entities_count {
+            let o = *entities[it];
+            if e == o continue;
+
+            let om = to_matrix(o.tr);
+            vec3 c = xyz(mul(make_vec(o.capsule_a, 1), om));
+            vec3 d = xyz(mul(make_vec(o.capsule_b, 1), om));
+
+            Intersection inr;
+            if capsule_intersects(a, b, c, d, e.capsule_radius, o.capsule_radius, *inr) {
+                e.highlight = true;
+
+                translate(*e.tr, inr.normal * inr.depth);
+            }
+        }
+    }
+
+    { // debug draw collider
+        let m = to_matrix(e.tr);
+        let A = xyz(mul(make_vec(e.capsule_a, 1), m));
+        let B = xyz(mul(make_vec(e.capsule_b, 1), m));
+        gizmo_capsule(A, B, xyz(m.row2), e.capsule_radius, e.highlight ? Red : Green);
+    }
+
+    e.highlight = false;
 }
