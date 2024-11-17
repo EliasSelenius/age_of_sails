@@ -312,6 +312,8 @@ void update_world() {
         ball.vel.y -= 9.8 * dt; // gravity
         ball.pos = ball.pos + ball.vel * dt;
     }
+
+    check_collisions();
 }
 
 void draw_world(DeferredRenderer* R, Camera cam) {
@@ -532,29 +534,6 @@ void update(Entity* e, float32 dt) {
 
     update_rigidbody_transform(*e.tr, *e.rb, dt);
 
-
-    {
-        let em = to_matrix(e.tr);
-        vec3 a = xyz(mul(make_vec(e.capsule_a, 1), em));
-        vec3 b = xyz(mul(make_vec(e.capsule_b, 1), em));
-
-        for 0 .. entities_count {
-            let o = *entities[it];
-            if e == o continue;
-
-            let om = to_matrix(o.tr);
-            vec3 c = xyz(mul(make_vec(o.capsule_a, 1), om));
-            vec3 d = xyz(mul(make_vec(o.capsule_b, 1), om));
-
-            Intersection inr;
-            if capsule_intersects(a, b, c, d, e.capsule_radius, o.capsule_radius, *inr) {
-                e.highlight = true;
-
-                translate(*e.tr, inr.normal * inr.depth);
-            }
-        }
-    }
-
     { // debug draw collider
         let m = to_matrix(e.tr);
         let A = xyz(mul(make_vec(e.capsule_a, 1), m));
@@ -563,4 +542,56 @@ void update(Entity* e, float32 dt) {
     }
 
     e.highlight = false;
+}
+
+
+void check_collisions() {
+
+    struct Collision {
+        Entity* e1, e2;
+        Intersection inr;
+    }
+
+    // TODO: this is a hack!
+    const capacity = entities_count*entities_count;
+    Collision[capacity] collisions;
+    uint32 collision_count = 0;
+
+    for i: 0 .. entities_count {
+        let e1 = *entities[i];
+
+        let e1_m = to_matrix(e1.tr);
+        vec3 a = xyz(mul(make_vec(e1.capsule_a, 1), e1_m));
+        vec3 b = xyz(mul(make_vec(e1.capsule_b, 1), e1_m));
+
+        for j: i+1 .. entities_count {
+            let e2 = *entities[j];
+
+            let e2_m = to_matrix(e2.tr);
+            vec3 c = xyz(mul(make_vec(e2.capsule_a, 1), e2_m));
+            vec3 d = xyz(mul(make_vec(e2.capsule_b, 1), e2_m));
+
+            Intersection inr;
+            if capsule_intersects(a, b, c, d, e1.capsule_radius, e2.capsule_radius, *inr) {
+                Collision col = {};
+                col.e1 = e1;
+                col.e2 = e2;
+                col.inr = inr;
+                collisions[collision_count++] = col;
+            }
+        }
+    }
+
+    for 0 .. collision_count {
+        Collision col = collisions[it];
+
+        col.e1.highlight = true;
+        col.e2.highlight = true;
+
+        vec3 tra = col.inr.normal * col.inr.depth * 0.5;
+        translate(*col.e1.tr, tra);
+        translate(*col.e2.tr, neg(tra));
+
+        gizmo_capsule(col.inr.contact_point, col.inr.contact_point + col.inr.normal, vec3_unit_y, 0.2, Yellow);
+    }
 }
