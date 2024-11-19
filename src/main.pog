@@ -284,7 +284,17 @@ void main() {
 
         // gizmo_transform(*world.town.tr, cam);
 
-        update_world();
+        static bool sim_pause = false;
+
+        if key_pressed('P') sim_pause = !sim_pause;
+
+        if sim_pause {
+            if key_pressed('O') update_world();
+        } else {
+            update_world();
+        }
+
+
         draw_world(R, cam);
 
         gizmo_dispatch();
@@ -338,7 +348,32 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         draw_geometry(R, R.db_inverted_box, model);
     }
 
+    {
+        static vec3 local_point = {};
+
+        if mouse_pressed(Left_Mouse) {
+            let gbuffer_data = read_gbuffer(R);
+            local_point = xyz(mul(make_vec(gbuffer_data.pos, 1), to_inverse_matrix(world.player_boat.tr)));
+        }
+
+        if mouse_down(Left_Mouse) {
+            let world_point = xyz(mul(make_vec(local_point, 1), to_matrix(world.player_boat.tr)));
+            gizmo_point(world_point, Red, 1);
+
+            vec3 ray = camera_ray(R.camera, Input.mouse_pos) * dist(R.camera.transform.position, world_point);
+            vec3 mouse_point = ray + R.camera.transform.position;
+            gizmo_point(mouse_point, Cyan, 1);
+
+            gizmo_line(world_point, mouse_point, Yellow);
+
+            float32 force_scale = 0.1;
+            add_force(*world.player_boat.rb, (mouse_point - world_point)*force_scale, world_point - world.player_boat.tr.position);
+        }
+
+    }
+
     render_terrain();
+
 
     begin_light_pass(R);
 
@@ -496,7 +531,7 @@ void update(Entity* e, float32 dt) {
         e.rb.velocity.y -= 9.8 * dt; // gravity
     }
 
-    float32 damp_factor = 1;
+    float32 damp_factor = 0.5;
     e.rb.velocity = e.rb.velocity - e.rb.velocity * damp_factor * dt;
 
     float32 angular_damp = 5;
@@ -523,6 +558,11 @@ void update(Entity* e, float32 dt) {
             }
         }
 
+        // TODO: we could reduce the number of matrix multiplications to 1/4.
+        // first: do the mirroring in world space.
+        // second: in check_buoyancy() there are two matrix mul, one with translation and one without
+        // we can do a single mat3 mul and just add translation afterwards
+
         let model = to_matrix(e.tr);
         for 0 .. offsets.length {
             let o = offsets[it];
@@ -534,16 +574,27 @@ void update(Entity* e, float32 dt) {
 
     update_rigidbody_transform(*e.tr, *e.rb, dt);
 
-    { // debug draw collider
+    if true { // debug draw collider
         let m = to_matrix(e.tr);
         let A = xyz(mul(make_vec(e.capsule_a, 1), m));
         let B = xyz(mul(make_vec(e.capsule_b, 1), m));
         gizmo_capsule(A, B, xyz(m.row2), e.capsule_radius, e.highlight ? Red : Green);
+
+
+        mat3 rot_m = make_mat3(m);
+        let p = mul(make_vec(3, 1, 15), rot_m);
+        vec3 v = cross(p, e.rb.angular_velocity);// + e.rb.velocity;
+        draw_vel(p + e.tr.position, v);
     }
+
 
     e.highlight = false;
 }
 
+void draw_vel(vec3 p, v) {
+    gizmo_line(p, p+v, Yellow);
+    gizmo_point(p+v, Yellow);
+}
 
 void check_collisions() {
 
@@ -571,8 +622,8 @@ void check_collisions() {
             vec3 c = xyz(mul(make_vec(e2.capsule_a, 1), e2_m));
             vec3 d = xyz(mul(make_vec(e2.capsule_b, 1), e2_m));
 
-            Intersection inr;
-            if capsule_intersects(a, b, c, d, e1.capsule_radius, e2.capsule_radius, *inr) {
+            Intersection inr = capsule_intersects(a, b, c, d, e1.capsule_radius, e2.capsule_radius);
+            if inr.depth > 0 {
                 Collision col = {};
                 col.e1 = e1;
                 col.e2 = e2;
@@ -591,6 +642,42 @@ void check_collisions() {
         vec3 tra = col.inr.normal * col.inr.depth * 0.5;
         translate(*col.e1.tr, tra);
         translate(*col.e2.tr, neg(tra));
+
+        // TODO: proper collision response here: https://en.wikipedia.org/wiki/Coefficient_of_restitution#Speeds_after_impact
+        // as a hack we are also just using linear velocities, but the velocities described in the wikipedia article
+        // are the velocities of the contact points, so there should be a change in angular velocity as well.
+
+        // vec3 v1 = col.e1.rb.velocity;
+        // vec3 v2 = col.e2.rb.velocity;
+
+        vec3 r1 = col.inr.contact_point - col.e1.tr.position;
+        vec3 r2 = col.inr.contact_point - col.e2.tr.position;
+
+        vec3 v1 = cross(r1, col.e1.rb.angular_velocity) + col.e1.rb.velocity;
+        vec3 v2 = cross(r2, col.e2.rb.angular_velocity) + col.e2.rb.velocity;
+
+        draw_vel(col.inr.contact_point, v1);
+        draw_vel(col.inr.contact_point, v2);
+
+        float32 m1 = col.e1.rb.mass;
+        float32 m2 = col.e2.rb.mass;
+
+        float32 e = 1; //0.5;
+
+        vec3 u1 = (m1*v1 + m2*v2 + m2*e*(v2 - v1)) / (m1 + m2);
+        vec3 u2 = (m1*v1 + m2*v2 + m1*e*(v1 - v2)) / (m1 + m2);
+
+        vec3 u1t = normalize(cross(r1, cross(r1, u1)));
+        u1t = u1t * dot(u1t, u1);
+
+        vec3 u2t = normalize(cross(r2, cross(r2, u2)));
+        u2t = u2t * dot(u2t, u2);
+
+        col.e1.rb.velocity = u1 - u1t;
+        col.e2.rb.velocity = u2 - u2t;
+
+        col.e1.rb.angular_velocity = cross(r1, u1t);
+        col.e2.rb.angular_velocity = cross(r2, u2t);
 
         gizmo_capsule(col.inr.contact_point, col.inr.contact_point + col.inr.normal, vec3_unit_y, 0.2, Yellow);
     }
