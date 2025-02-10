@@ -2,8 +2,10 @@
 
 
 
-const chunk_lod_count = 8;
+const chunk_lod_count = 6;
 DrawBuffers[chunk_lod_count] chunk_meshes;
+DrawBuffers full_res_plane_mesh;
+DrawBuffers quad_plane_mesh;
 
 const region_size = 400; // 1 << chunk_lod_count;
 const region_count = 33;
@@ -11,8 +13,13 @@ const region_count = 33;
 const regions_array_size = region_count * region_count;
 TerrainRegion[regions_array_size] regions;
 
+const height_map_res_downscale = 10;
+const height_map_res = region_size / height_map_res_downscale + 2; // +2 here is to make chunk aware of the heights of the edges of neighboring chunks to remove ugly seam
+
 struct TerrainRegion {
-    uint32 height_map;
+    float32* height_map;
+    uint32 height_map_tex;
+
     ivec2 coord;
 
     Color color;
@@ -20,13 +27,59 @@ struct TerrainRegion {
     uint32 lod;
 }
 
+float32 sample(TerrainRegion* chunk, ivec2 uv) {
+
+    if uv.x < 0 or uv.x >= height_map_res
+    or uv.y < 0 or uv.y >= height_map_res print("UV: ", uv, "\n");
+
+
+    return chunk.height_map[uv.y*height_map_res + uv.x];
+}
+
+float32 bilinear_sample(TerrainRegion* chunk, vec2 uv) {
+    vec2 upscale = uv * (height_map_res);
+    vec2 f = floor(upscale);
+    let s00 = sample(chunk, make_ivec(f + make_vec(0, 0)));
+    let s10 = sample(chunk, make_ivec(f + make_vec(1, 0)));
+    let s01 = sample(chunk, make_ivec(f + make_vec(0, 1)));
+    let s11 = sample(chunk, make_ivec(f + make_vec(1, 1)));
+    vec2 fr = fract(upscale);
+    return lerp(fr.y, lerp(fr.x, s00, s10), lerp(fr.x, s01, s11));
+}
+
+ivec2 get_chunk_coord(float32 x, y) {
+    let center = round2multiple(make_vec(x, y), region_size);
+    return make_ivec(center / region_size);
+}
+
+float32 terrian_height(float32 x, y) {
+
+    vec2 pos = make_vec(x, y);
+    let center = round2multiple(pos, region_size);
+    let coord = make_ivec(center / region_size);
+    let chunk = get_chunk(coord);
+    if chunk == null return 0;
+
+    vec2 uv = vec2_one*0.5 + ((pos - center) / region_size);
+
+    if uv.x < 0 or uv.x > 1
+    or uv.y < 0 or uv.y > 1 print("UV: ", uv, "\n");
+
+    float32 r = 1.0 / height_map_res;
+    uv = make_vec(r, r) + uv * (height_map_res - 2) / height_map_res;
+
+    return bilinear_sample(chunk, uv);
+}
+
 TerrainRegion create_region() {
     TerrainRegion r = {};
 
+    r.height_map = malloc(height_map_res * height_map_res * sizeof float32);
+
     r.coord = {99, 99};
 
-    glGenTextures(1, *r.height_map);
-    glBindTexture(GL_TEXTURE_2D, r.height_map);
+    glGenTextures(1, *r.height_map_tex);
+    glBindTexture(GL_TEXTURE_2D, r.height_map_tex);
 
     // set_wrap_mode(TextureWrapMode.mirrored_repeat);
     // set_wrap_mode(TextureWrapMode.repeat);
@@ -43,41 +96,12 @@ TerrainRegion create_region() {
     return r;
 }
 
-void generate_region(uint32 tex, vec2 center) {
-    int32 lod = 10;
-    int32 res = region_size / lod + 2; // +2 here is to make chunk aware of the heights of the edges of neighboring chunks to remove ugly seam
-
-    float32* height_map = malloc(res * res * sizeof float32);
-
-    for y : 0 .. res for x : 0 .. res {
-        float32 h = -30;
-        for i : 1 .. 6 {
-            vec2 coord = center + make_vec(x * lod, y * lod) + make_vec2(i*1000);
-            float32 scale = i*20;
-            h += gnoise(coord / (scale*5)) * scale;
-        }
-        height_map[y*res + x] = h;
-    }
-
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, res, res, 0, GL_RED, GL_FLOAT, height_map);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    free(height_map);
-}
-
-void regenerate_heightmap(TerrainRegion* region) {
-    generate_region(region.height_map, make_vec(region.coord * (region_size)));
-}
-
-
 void init_terrain() {
 
-    DrawBuffers create_plane(uint32 lod) {
-        uint32 sub = pow(2, lod);
-        uint32 size = region_size / sub;
-        if size % 2   size++;
-        let plane = gen_plane(size, 1, region_size / size as float32);
+    DrawBuffers create_plane(uint32 size) {
+        float32 uv_scale = 1;
+        float32 scale = region_size / size as float32;
+        let plane = gen_plane(size, uv_scale, scale);
         let db = create_draw_buffers(plane);
         free(plane.vertices);
         free(plane.indices);
@@ -85,9 +109,19 @@ void init_terrain() {
     }
 
     for 0 .. chunk_lod_count {
-        chunk_meshes[it] = create_plane(it);
+        uint32 lod = it;
+
+        uint32 sub = pow(2, lod);
+        uint32 size = region_size / height_map_res_downscale / sub;
+        if size % 2   size++;
+
+        print("[INFO]: generating plane: lod=", lod, " size=", size, "\n");
+
+        chunk_meshes[it] = create_plane(size);
     }
 
+    full_res_plane_mesh = create_plane(region_size);
+    quad_plane_mesh = create_plane(1);
 
     Color[] colors = {White, Gray, Black, Red, Green, Blue, Yellow, Cyan, Purple};
 
@@ -96,6 +130,14 @@ void init_terrain() {
         regions[it].color = colors[it % colors.length];
     }
 
+}
+
+TerrainRegion* get_chunk(ivec2 coord) {
+    for 0 .. regions_array_size {
+        let chunk = *regions[it];
+        if equals(chunk.coord, coord) return chunk;
+    }
+    return null;
 }
 
 TerrainRegion* get_recyclable_chunk(ivec2 camera_coord) {
@@ -112,6 +154,31 @@ TerrainRegion* get_recyclable_chunk(ivec2 camera_coord) {
     return null;
 }
 
+void regenerate_heightmap(TerrainRegion* region) {
+    int32 res = height_map_res;
+
+    vec2 center = make_vec(region.coord * (region_size));
+
+    for y : 0 .. res for x : 0 .. res {
+        float32 h = -30;
+        // for i : 1 .. 6 {
+        //     vec2 coord = center + make_vec(x * lod, y * lod) + make_vec2(i*1000);
+        //     float32 scale = i*20;
+        //     h += gnoise(coord / (scale*50)) * scale;
+        // }
+
+        vec2 coord = center + make_vec(x, y) * height_map_res_downscale;
+        h += gnoise(coord / 1_000) * 200;
+        h += gnoise(coord / 100) * 30;
+
+        region.height_map[y*res + x] = h;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, region.height_map_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, res, res, 0, GL_RED, GL_FLOAT, region.height_map);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 uint32 ensure_chunk(ivec2 coord, camera_coord) {
     for 0 .. regions_array_size {
         let chunk = *regions[it];
@@ -121,6 +188,22 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
     let chunk = get_recyclable_chunk(camera_coord);
     chunk.coord = coord;
     regenerate_heightmap(chunk);
+
+    vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
+
+    for 0 .. 10 {
+        let en = spawn_entity(*pyramid, *white_texture);
+        en.has_buoyancy = false;
+        en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
+        en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
+        en.tr.scale = make_vec3(30);
+        en.does_collide = false;
+
+        en.pbr.albedo = { random01(), random01(), random01() };
+        en.pbr.metallic = random01();
+        en.pbr.roughness = random01();
+    }
+
     return 1;
 }
 
@@ -145,21 +228,30 @@ void render_terrain() {
     } done:
 
 
+    static bool terrain_wireframe = false;
+    if key_pressed('Z') {
+        terrain_wireframe = !terrain_wireframe;
+    }
+
 
     use(*ground_shader);
     for 0 .. regions_array_size {
         let chunk = *regions[it];
 
-        bind_texture2D(chunk.height_map, 0);
+        bind_texture2D(chunk.height_map_tex, 0);
         vec2 chunk_pos = make_vec(chunk.coord * region_size);
         set_uniform("chunk_pos", chunk_pos);
 
         let rel = chunk.coord - camera_coord;
         chunk.lod = min(max(abs(rel.x), abs(rel.y)), chunk_lod_count - 1);
 
-        // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        draw_elements(chunk_meshes[chunk.lod]);
-        // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        if terrain_wireframe {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        }
+
+        uint32[] lod_index = { 0, 0, 1, 2, 3, 4, 5, 6 };
+        draw_elements(chunk_meshes[lod_index[chunk.lod]]);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         vec3 pos = {chunk_pos.x, 30, chunk_pos.y};
         gizmo_current_color = chunk.color;

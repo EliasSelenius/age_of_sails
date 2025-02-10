@@ -18,39 +18,7 @@ layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
 layout (location = 2) in vec2 a_Uv;
 
-vec4 get_terrain() {
-    float height_map_res = 42;
-
-    float r = 1.0 / height_map_res;
-    vec2 uv = r + a_Uv * (height_map_res - 2) / height_map_res;
-
-    float g = 1.0 / (401);
-    float h1 = texture(height_map, uv).x;
-    float h2 = texture(height_map, uv + vec2(g, 0)).x;
-    float h3 = texture(height_map, uv + vec2(0, g)).x;
-    float h4 = texture(height_map, uv + vec2(-g, 0)).x;
-    float h5 = texture(height_map, uv + vec2(0, -g)).x;
-
-    float d = 1;
-    vec3 p1 = vec3(0,  h1,  0);
-    vec3 p2 = vec3(d,  h2,  0);
-    vec3 p3 = vec3(0,  h3,  d);
-    vec3 p4 = vec3(-d, h4,  0);
-    vec3 p5 = vec3(0,  h5, -d);
-
-    /*
-        p3
-    p4  p1  p2
-        p5
-    */
-
-    vec3 normal = normalize(cross(p3 - p1, p2 - p1) +
-                            cross(p4 - p1, p3 - p1) +
-                            cross(p5 - p1, p4 - p1) +
-                            cross(p2 - p1, p5 - p1));
-
-    return vec4(normal, h1);
-}
+#include "shaders/ground.glsl"
 
 void main() {
 

@@ -27,6 +27,10 @@ layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
 layout (location = 2) in vec2 a_Uv;
 
+
+#include "shaders/ground.glsl"
+
+
 // wave direction must be normalized
 void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, float wave_length, inout vec3 pos, inout vec3 tangent, inout vec3 binormal) {
     float k = Tau / wave_length;
@@ -38,42 +42,6 @@ void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, fl
     pos      += vec3( c, s,  c) * vec3(dir.x, 1.0, dir.y)                   * steepness / k;
     tangent  += vec3(-s, c, -s) * vec3(dir.x * dir.x, dir.x, dir.x * dir.y) * steepness;
     binormal += vec3(-s, c, -s) * vec3(dir.x * dir.y, dir.y, dir.y * dir.y) * steepness;
-}
-
-vec4 get_terrain() {
-    float region_size = 400;
-
-    float height_map_res = region_size / 10.0 + 2.0;
-
-    float r = 1.0 / height_map_res;
-    vec2 uv = r + a_Uv * (height_map_res - 2) / height_map_res;
-
-    float g = 1.0 / (region_size+1);
-    float h1 = texture(height_map, uv).x;
-    float h2 = texture(height_map, uv + vec2(g, 0)).x;
-    float h3 = texture(height_map, uv + vec2(0, g)).x;
-    float h4 = texture(height_map, uv + vec2(-g, 0)).x;
-    float h5 = texture(height_map, uv + vec2(0, -g)).x;
-
-    float d = (region_size+1) * g;
-    vec3 p1 = vec3(0,  h1,  0);
-    vec3 p2 = vec3(d,  h2,  0);
-    vec3 p3 = vec3(0,  h3,  d);
-    vec3 p4 = vec3(-d, h4,  0);
-    vec3 p5 = vec3(0,  h5, -d);
-
-    /*
-        p3
-    p4  p1  p2
-        p5
-    */
-
-    vec3 normal = normalize(cross(p3 - p1, p2 - p1) +
-                            cross(p4 - p1, p3 - p1) +
-                            cross(p5 - p1, p4 - p1) +
-                            cross(p2 - p1, p5 - p1));
-
-    return vec4(normal, h1);
 }
 
 void main() {
@@ -124,7 +92,7 @@ void main() {
     if (geom_depth < 0.001) geom_depth = 9999.0; // TODO: we might be able to remove this if statement if we clear g_buffer_pos with large z values
     float depth = geom_depth - length(v2f.pos);
 
-    vec4 deep_water = vec4(0.2, 0.4, 0.8, 1.0);
+    vec4 deep_water = vec4(0.15, 0.4, 1.0, 1.0);
     vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.1);
     float alpha = 1 - exp(-depth * depth_factor);
     vec4 color = mix(shallow_water, deep_water, alpha) * texture(water_tex, v2f.uv);
@@ -135,7 +103,7 @@ void main() {
     g.pos = v2f.pos;
     g.normal = v2f.normal;
     g.albedo = color.rgb;
-    g.roughness = 0.5;
+    g.roughness = 0.4;
     g.metallic = 0.0;
 
     vec3 sun_dir      = camera.sun_dir.xyz;

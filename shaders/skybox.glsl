@@ -44,7 +44,8 @@ void main() {
     float g2 = g*g;
     float MiePhase = 1.5 * ((1.0 - g2) / (2.0 + g2)) * (1.0 + fCos*fCos) / pow(1.0 + g2 - 2.0*g*fCos, 1.5);
 
-    vec3 sky_color = vec3(0.1, 0.1, 1);
+    // vec3 sky_color = vec3(0.1, 0.1, 1);
+    vec3 sky_color = vec3(0.1, 0.5, 0.9);
 
     FragColor = vec4(sky_color + vec3(MiePhase), 1.0);
 

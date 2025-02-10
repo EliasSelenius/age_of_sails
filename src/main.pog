@@ -82,6 +82,8 @@ BoatStat player_stat = {
 
 Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 
+Mesh[..] all_meshes = list_create(sizeof Mesh);
+
 Shader water_shader;
 Shader ground_shader;
 Shader skybox_shader;
@@ -134,6 +136,22 @@ void loadassets() {
         list_delete(mesh.vertices);
         free(mesh.indices);
         return db;
+    }
+
+    char*[] asset_name = {
+        "pyramid.obj",
+        "Boat2.obj",
+        "Boate_Smooth.obj"
+    };
+
+    for 0 .. asset_name.length {
+        let mesh = load_mesh(concat("../shared_assets/", asset_name[it]));
+
+        // TODO: this is terrible, we must change definition of Mesh such that vertices and indices are dynamic arrays
+        list_delete(mesh.vertices);
+        free(mesh.indices);
+
+        list_add(*all_meshes, *mesh);
     }
 
     pyramid = load_drawable("../shared_assets/pyramid.obj");
@@ -227,6 +245,9 @@ void on_event(AppEvent event, AppEventData data) {
 enum GameViewMode { BoatControl; FreeCam; }
 GameViewMode game_view_mode = .BoatControl;
 
+bool sim_pause = false;
+
+
 void main() {
     app.on_event = on_event;
     grax_init();
@@ -247,33 +268,41 @@ void main() {
 
         switch game_view_mode {
             case .BoatControl: {
-                camera_orbit_control(*cam, world.player_boat.tr.position);
+                let e = world.player_boat;
+
+                if key_down(GLFW_KEY_LEFT_SHIFT) {
+                    fire_cannons(e, mouse_pressed(Left_Mouse));
+                } else {
+                    camera_orbit_control(*cam, e.tr.position);
+                }
 
                 const torque = 5;
                 const force = 0.2;
 
-                let e = world.player_boat;
                 if key('D') add_torque(*e.rb, ({0, torque, 0} as vec3) * dt);
                 if key('A') add_torque(*e.rb, ({0, -torque, 0} as vec3) * dt);
 
                 if key('W') add_force(*e.rb, forward(e.tr) * force * player_stat.boat_speed * dt);
                 if key('S') add_force(*e.rb, {0, 1, 0} as vec3);
 
-
-                if mouse(Left_Mouse) {
-                    // spawn_cannonball(cam.transform.position, vec3_unit_z * player_stat.cannon_range, player_stat.cannon_damage);
-                    fire_cannons(e);
-                }
-
                 if key_pressed(GLFW_KEY_ENTER) game_view_mode = .FreeCam;
 
-                float32 speed = length(world.player_boat.rb.velocity);
+                float32 speed = length(e.rb.velocity);
                 draw_text({0,0}as vec2, 0.04, to_string(speed as uint32), White);
 
             } break;
 
             case .FreeCam: {
                 camera_fly_control(*cam);
+
+
+                // int32 dist = 20;
+                // for y: -dist .. dist+1 for x: -dist .. dist+1 {
+                //     vec3 pos = cam.transform.position + {x, 0, y};
+                //     pos.y = terrian_height(pos.x, pos.z);
+                //     gizmo_point(pos, Black, 0.4);
+                // }
+
                 if key_pressed(GLFW_KEY_ENTER) game_view_mode = .BoatControl;
             } break;
         }
@@ -283,8 +312,6 @@ void main() {
         }
 
         // gizmo_transform(*world.town.tr, cam);
-
-        static bool sim_pause = false;
 
         if key_pressed('P') sim_pause = !sim_pause;
 
@@ -323,8 +350,10 @@ void update_world() {
         ball.pos = ball.pos + ball.vel * dt;
     }
 
-    check_collisions();
+    // check_collisions();
 }
+
+vec3 tree_pos;
 
 void draw_world(DeferredRenderer* R, Camera cam) {
 
@@ -338,7 +367,8 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
     for 0 .. entities_count {
         let en = *entities[it];
-        draw_geometry(R, @en.db, en.tr);
+        if sqdist(en.tr.position, cam.transform.position) > region_size*2*region_size*2 continue;
+        draw_geometry(R, @en.db, en.pbr, en.tr);
     }
 
     for 0 .. list_length(cannon_balls) {
@@ -348,12 +378,40 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         draw_geometry(R, R.db_inverted_box, model);
     }
 
+    // {
+    //     vec3 pos = cam.transform.position + forward(cam.transform)*40;
+    //     pos.y = terrian_height(pos.x, pos.z);
+    //     draw_geometry(R, pyramid, make_mat4(pos, 10));
+    // }
+
     {
+        let center = round2multiple(cam.transform.position, region_size);
+        int32 num_v = region_size / height_map_res_downscale + 1;
+        for y:0..num_v for x:0..num_v {
+            vec3 pos = center + {x, 0, y} * height_map_res_downscale - make_vec3(region_size/2);
+            pos.y = terrian_height(pos.x, pos.z);
+            gizmo_point(pos, Blue, 0.5);
+        }
+
+        let chunk = get_chunk(get_chunk_coord(cam.transform.position.x, cam.transform.position.z));
+        if chunk {
+            // num_v = region_size / height_map_res_downscale;
+            for y:1..num_v for x:1..num_v {
+                vec3 pos = center + {x, 0, y} * height_map_res_downscale - make_vec3(region_size/2) - make_vec(height_map_res_downscale, 0, height_map_res_downscale)*0.5;
+                pos.y = sample(chunk, make_ivec(x, y));
+                gizmo_point(pos, Yellow, 0.5);
+            }
+        }
+    }
+
+    if game_view_mode == GameViewMode.FreeCam {
         static vec3 local_point = {};
 
         if mouse_pressed(Left_Mouse) {
             let gbuffer_data = read_gbuffer(R);
             local_point = xyz(mul(make_vec(gbuffer_data.pos, 1), to_inverse_matrix(world.player_boat.tr)));
+
+            tree_pos = gbuffer_data.pos;
         }
 
         if mouse_down(Left_Mouse) {
@@ -369,10 +427,11 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             float32 force_scale = 0.1;
             add_force(*world.player_boat.rb, (mouse_point - world_point)*force_scale, world_point - world.player_boat.tr.position);
         }
-
     }
 
     render_terrain();
+
+    draw_tree(tree_pos, 0);
 
 
     begin_light_pass(R);
@@ -380,7 +439,7 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     { // water
         use(*water_shader);
 
-        static float32 depth_factor = 0.1;
+        static float32 depth_factor = 0.2;
         // depth_factor += mouse_scroll / 100.0;
         set_uniform("depth_factor", depth_factor);
         // draw_text(vec2_zero, 0.05, to_string((depth_factor * 1000) as uint32), White);
@@ -388,15 +447,21 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
         enable_depth_test();
         enable_alpha_blending();
-        bind(water_texture, 1);
+        // bind(water_texture, 1);
+        bind(white_texture, 1);
 
         for 0 .. regions_array_size {
             let chunk = *regions[it];
 
-            bind_texture2D(chunk.height_map, 2);
+            bind_texture2D(chunk.height_map_tex, 2);
             vec2 chunk_pos = make_vec(chunk.coord * (region_size));
             set_uniform("water_pos", chunk_pos);
-            draw_elements(chunk_meshes[chunk.lod]);
+            // draw_elements(chunk_meshes[chunk.lod]);
+            if chunk.lod < 2 {
+                draw_elements(full_res_plane_mesh);
+            } else {
+                draw_elements(quad_plane_mesh);
+            }
         }
 
         if false {
@@ -456,12 +521,16 @@ struct Particle {
 struct Entity {
     Texture2D* texture;
     DrawBuffers* db;
+    Material_PBR pbr;
+
     with Transform tr;
     with Rigidbody rb;
 
     float32 cannon_reload;
     bool sails_unfurled;
     bool has_buoyancy;
+
+    bool does_collide;
 
     bool highlight;
 
@@ -470,7 +539,7 @@ struct Entity {
 }
 
 // Entity* entities = list_create(sizeof Entity);
-Entity* entities = malloc(1000 * sizeof Entity);
+Entity* entities = malloc(100_000 * sizeof Entity);
 uint32 entities_count = 0;
 
 Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
@@ -479,10 +548,13 @@ Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     e.db = db;
     e.tr = transform_default();
 
+    e.pbr = {{1,1,1}, 0.1, 0.1};
+
     e.rb = {};
     e.rb.mass = 1;
 
     e.has_buoyancy = true;
+    e.does_collide = true;
 
     e.capsule_a = Boate_Capsule.a;
     e.capsule_b = Boate_Capsule.b;
@@ -502,11 +574,11 @@ void spawn_cannonball(vec3 pos, vel, uint32 damage) {
     list_add(*cannon_balls, *ball);
 }
 
-void fire_cannons(Entity* boat) {
-    if boat.cannon_reload > 0  return;
-    boat.cannon_reload = player_stat.cannon_reload_time;
+void fire_cannons(Entity* en, bool fire) {
+    if en.cannon_reload > 0  return;
+    if fire en.cannon_reload = player_stat.cannon_reload_time;
 
-    let model = to_matrix(boat.tr);
+    let model = to_matrix(en.tr);
 
     vec3 left    = xyz(model.row1);
     vec3 up      = xyz(model.row2);
@@ -515,10 +587,24 @@ void fire_cannons(Entity* boat) {
     vec3 dir = left + vec3_unit_y*0.2;
     uint32 cc = player_stat.cannon_count;
     for 0 .. cc {
-        vec3 pos = boat.tr.position + left*3 + up*2 + forward*(it - cc/2 as float32)*3;
-        spawn_cannonball(pos, dir * player_stat.cannon_range, player_stat.cannon_damage);
+        vec3 pos = en.tr.position + left*3 + up*2 + forward*(it - cc/2 as float32)*3;
+        vec3 vel = dir * player_stat.cannon_range;
+
+        if fire spawn_cannonball(pos, vel, player_stat.cannon_damage);
+        else draw_trajectory(pos, vel);
     }
 }
+
+void draw_trajectory(vec3 pos, vel) {
+    float32 dt = 1 / 60.0;
+    for 0 .. 100 {
+        vel.y -= 9.8 * dt;
+        pos = pos + vel * dt;
+
+        gizmo_point(pos, White);
+    }
+}
+
 
 /*
     40 = velocity
@@ -574,7 +660,7 @@ void update(Entity* e, float32 dt) {
 
     update_rigidbody_transform(*e.tr, *e.rb, dt);
 
-    if true { // debug draw collider
+    if e.does_collide { // debug draw collider
         let m = to_matrix(e.tr);
         let A = xyz(mul(make_vec(e.capsule_a, 1), m));
         let B = xyz(mul(make_vec(e.capsule_b, 1), m));
@@ -605,11 +691,12 @@ void check_collisions() {
 
     // TODO: this is a hack!
     const capacity = entities_count*entities_count;
-    Collision[capacity] collisions;
+    Collision* collisions = malloc(capacity * sizeof Collision);
     uint32 collision_count = 0;
 
     for i: 0 .. entities_count {
         let e1 = *entities[i];
+        if !e1.does_collide continue;
 
         let e1_m = to_matrix(e1.tr);
         vec3 a = xyz(mul(make_vec(e1.capsule_a, 1), e1_m));
@@ -617,6 +704,7 @@ void check_collisions() {
 
         for j: i+1 .. entities_count {
             let e2 = *entities[j];
+            if !e2.does_collide continue;
 
             let e2_m = to_matrix(e2.tr);
             vec3 c = xyz(mul(make_vec(e2.capsule_a, 1), e2_m));
@@ -656,8 +744,10 @@ void check_collisions() {
         vec3 v1 = cross(r1, col.e1.rb.angular_velocity) + col.e1.rb.velocity;
         vec3 v2 = cross(r2, col.e2.rb.angular_velocity) + col.e2.rb.velocity;
 
+        if dot(v1, v2) < 0 continue;
+
         draw_vel(col.inr.contact_point, v1);
-        draw_vel(col.inr.contact_point, v2);
+        // draw_vel(col.inr.contact_point, v2);
 
         float32 m1 = col.e1.rb.mass;
         float32 m2 = col.e2.rb.mass;
@@ -673,12 +763,29 @@ void check_collisions() {
         vec3 u2t = normalize(cross(r2, cross(r2, u2)));
         u2t = u2t * dot(u2t, u2);
 
-        col.e1.rb.velocity = u1 - u1t;
-        col.e2.rb.velocity = u2 - u2t;
+        // col.e1.rb.velocity = u1 - u1t;
+        // col.e2.rb.velocity = u2 - u2t;
 
-        col.e1.rb.angular_velocity = cross(r1, u1t);
-        col.e2.rb.angular_velocity = cross(r2, u2t);
+        // col.e1.rb.angular_velocity = cross(r1, u1t);
+        // col.e2.rb.angular_velocity = cross(r2, u2t);
 
         gizmo_capsule(col.inr.contact_point, col.inr.contact_point + col.inr.normal, vec3_unit_y, 0.2, Yellow);
+    }
+
+    free(collisions);
+}
+
+void draw_tree(vec3 root_pos, int32 seed) {
+    Color brown = rgba(0x584244ff);
+
+    float32 spread = 0.3;
+
+    vec3 pos = root_pos;
+    gizmo_point(pos, brown);
+    for 0 .. 20 {
+        let last_pos = pos;
+        pos = pos + { random(seed++) * spread, 1, random(seed++) * spread };
+        gizmo_line(last_pos, pos, brown);
+        gizmo_point(pos, brown);
     }
 }
