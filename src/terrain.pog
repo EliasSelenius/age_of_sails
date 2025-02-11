@@ -7,13 +7,13 @@ DrawBuffers[chunk_lod_count] chunk_meshes;
 DrawBuffers full_res_plane_mesh;
 DrawBuffers quad_plane_mesh;
 
-const region_size = 400; // 1 << chunk_lod_count;
-const region_count = 33;
+const region_size = 128; // 1 << chunk_lod_count;
+const region_count = 7;
 
 const regions_array_size = region_count * region_count;
 TerrainRegion[regions_array_size] regions;
 
-const height_map_res_downscale = 10;
+const height_map_res_downscale = 4;
 const height_map_res = region_size / height_map_res_downscale + 2; // +2 here is to make chunk aware of the heights of the edges of neighboring chunks to remove ugly seam
 
 struct TerrainRegion {
@@ -113,11 +113,11 @@ void init_terrain() {
 
         uint32 sub = pow(2, lod);
         uint32 size = region_size / height_map_res_downscale / sub;
-        if size % 2   size++;
+        // uint32 size = region_size / sub;
 
         print("[INFO]: generating plane: lod=", lod, " size=", size, "\n");
 
-        chunk_meshes[it] = create_plane(size);
+        chunk_meshes[it] = create_plane(size + 1);
     }
 
     full_res_plane_mesh = create_plane(region_size);
@@ -154,23 +154,21 @@ TerrainRegion* get_recyclable_chunk(ivec2 camera_coord) {
     return null;
 }
 
+float32 terrain_noise(vec2 coord) {
+    float32 h = -30;
+    h += gnoise(coord / 5_000) * 200;
+    h += gnoise(coord / 100) * 30;
+    return h;
+}
+
 void regenerate_heightmap(TerrainRegion* region) {
     int32 res = height_map_res;
 
     vec2 center = make_vec(region.coord * (region_size));
-
+    float32 m = region_size / (region_size as float32 / height_map_res_downscale + 1);
     for y : 0 .. res for x : 0 .. res {
-        float32 h = -30;
-        // for i : 1 .. 6 {
-        //     vec2 coord = center + make_vec(x * lod, y * lod) + make_vec2(i*1000);
-        //     float32 scale = i*20;
-        //     h += gnoise(coord / (scale*50)) * scale;
-        // }
-
-        vec2 coord = center + make_vec(x, y) * height_map_res_downscale;
-        h += gnoise(coord / 1_000) * 200;
-        h += gnoise(coord / 100) * 30;
-
+        vec2 coord = center + make_vec(x, y) * m;
+        float32 h = terrain_noise(coord);
         region.height_map[y*res + x] = h;
     }
 
@@ -192,11 +190,11 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
     vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
 
     for 0 .. 10 {
-        let en = spawn_entity(*pyramid, *white_texture);
+        let en = spawn_entity(*db_palm, *white_texture);
         en.has_buoyancy = false;
         en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
         en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
-        en.tr.scale = make_vec3(30);
+        en.tr.scale = make_vec3(1);
         en.does_collide = false;
 
         en.pbr.albedo = { random01(), random01(), random01() };
@@ -242,14 +240,14 @@ void render_terrain() {
         vec2 chunk_pos = make_vec(chunk.coord * region_size);
         set_uniform("chunk_pos", chunk_pos);
 
-        let rel = chunk.coord - camera_coord;
-        chunk.lod = min(max(abs(rel.x), abs(rel.y)), chunk_lod_count - 1);
 
         if terrain_wireframe {
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         }
 
-        uint32[] lod_index = { 0, 0, 1, 2, 3, 4, 5, 6 };
+        uint32[] lod_index = { 0, 0, 1, 2, 3, 4, 5 };
+        let rel = chunk.coord - camera_coord;
+        chunk.lod = min(max(abs(rel.x), abs(rel.y)), lod_index.length - 1);
         draw_elements(chunk_meshes[lod_index[chunk.lod]]);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 

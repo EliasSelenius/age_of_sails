@@ -54,7 +54,9 @@ void main() {
     FragNormal_Roughness.xyz = normalize(v2f.normal);
     FragNormal_Roughness.w   = 0.9;
 
-    FragColor = vec3(fract(v2f.height)) + vec3(v2f.uv, 0.0);
+    float contour = 1.0 - step(0.01, fract(v2f.height));
+
+    FragColor = vec3(contour) + vec3(v2f.uv, 0.0);
 }
 
 #endif

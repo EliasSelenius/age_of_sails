@@ -96,6 +96,7 @@ DrawBuffers pyramid;
 DrawBuffers Boate;
 DrawBuffers Boat2;
 DrawBuffers firstTownscaper;
+DrawBuffers db_palm;
 
 Capsule Boate_Capsule;
 
@@ -109,6 +110,10 @@ Capsule boat_collider_from_mesh(Mesh m) {
     c.radius = m.bb_max.x;
     c.a.z = m.bb_min.z + c.radius;
     c.b.z = m.bb_max.z - c.radius;
+
+    c.a.y = m.bb_min.y + c.radius;
+    c.b.y = m.bb_min.y + c.radius;
+
     return c;
 }
 
@@ -156,10 +161,10 @@ void loadassets() {
 
     pyramid = load_drawable("../shared_assets/pyramid.obj");
     Boat2 = load_drawable("../shared_assets/Boat2.obj");
+    db_palm = load_drawable("../shared_assets/palm.obj");
 
     Mesh Boate_Mesh = load_mesh("../shared_assets/Boate_Smooth.obj");
     Boate = create_draw_buffers(Boate_Mesh);
-
     Boate_Capsule = boat_collider_from_mesh(Boate_Mesh);
 
     // TODO: this is terrible, we must change definition of Mesh such that vertices and indices are dynamic arrays
@@ -350,7 +355,7 @@ void update_world() {
         ball.pos = ball.pos + ball.vel * dt;
     }
 
-    // check_collisions();
+    check_collisions();
 }
 
 vec3 tree_pos;
@@ -368,7 +373,8 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     for 0 .. entities_count {
         let en = *entities[it];
         if sqdist(en.tr.position, cam.transform.position) > region_size*2*region_size*2 continue;
-        draw_geometry(R, @en.db, en.pbr, en.tr);
+
+        draw_geometry(R, @en.db, en.pbr, en.texture.gl_handle, to_matrix(en.tr));
     }
 
     for 0 .. list_length(cannon_balls) {
@@ -384,24 +390,37 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     //     draw_geometry(R, pyramid, make_mat4(pos, 10));
     // }
 
-    {
+    if true {
         let center = round2multiple(cam.transform.position, region_size);
-        int32 num_v = region_size / height_map_res_downscale + 1;
+        int32 num_v = region_size / height_map_res_downscale + 2;
+        float32 m = region_size / (region_size as float32 / height_map_res_downscale + 1);
         for y:0..num_v for x:0..num_v {
-            vec3 pos = center + {x, 0, y} * height_map_res_downscale - make_vec3(region_size/2);
+            vec3 pos = center + {x, 0, y} * m - make_vec3(region_size/2);
             pos.y = terrian_height(pos.x, pos.z);
-            gizmo_point(pos, Blue, 0.5);
+            gizmo_point(pos, Blue, 0.4);
+
+            pos.y = terrain_noise(xz(center) + make_vec(x, y) * m);
+            gizmo_point(pos, White, 0.4);
         }
 
         let chunk = get_chunk(get_chunk_coord(cam.transform.position.x, cam.transform.position.z));
         if chunk {
-            // num_v = region_size / height_map_res_downscale;
-            for y:1..num_v for x:1..num_v {
-                vec3 pos = center + {x, 0, y} * height_map_res_downscale - make_vec3(region_size/2) - make_vec(height_map_res_downscale, 0, height_map_res_downscale)*0.5;
+            for y:0..num_v for x:0..num_v {
+                vec3 pos = center + {x, 0, y} * m - make_vec3(region_size/2);
                 pos.y = sample(chunk, make_ivec(x, y));
-                gizmo_point(pos, Yellow, 0.5);
+                gizmo_point(pos, Red, 0.2);
             }
         }
+
+        // let chunk = get_chunk(get_chunk_coord(cam.transform.position.x, cam.transform.position.z));
+        // if chunk {
+        //     // num_v = region_size / height_map_res_downscale;
+        //     for y:1..num_v for x:1..num_v {
+        //         vec3 pos = center + {x, 0, y} * height_map_res_downscale - make_vec3(region_size/2) - make_vec(height_map_res_downscale, 0, height_map_res_downscale)*0.5;
+        //         pos.y = sample(chunk, make_ivec(x, y));
+        //         gizmo_point(pos, Yellow, 0.5);
+        //     }
+        // }
     }
 
     if game_view_mode == GameViewMode.FreeCam {
@@ -682,17 +701,16 @@ void draw_vel(vec3 p, v) {
     gizmo_point(p+v, Yellow);
 }
 
+// TODO: Compiler bug: this could not be a local struct because of the static runtime assignment of collisions.
+struct Collision {
+    Entity* e1, e2;
+    Intersection inr;
+}
+
 void check_collisions() {
 
-    struct Collision {
-        Entity* e1, e2;
-        Intersection inr;
-    }
-
-    // TODO: this is a hack!
-    const capacity = entities_count*entities_count;
-    Collision* collisions = malloc(capacity * sizeof Collision);
-    uint32 collision_count = 0;
+    static Collision[..] collisions = list_create(sizeof Collision);
+    list_clear(collisions);
 
     for i: 0 .. entities_count {
         let e1 = *entities[i];
@@ -716,11 +734,13 @@ void check_collisions() {
                 col.e1 = e1;
                 col.e2 = e2;
                 col.inr = inr;
-                collisions[collision_count++] = col;
+
+                list_add(*collisions, *col);
             }
         }
     }
 
+    uint32 collision_count = list_length(collisions);
     for 0 .. collision_count {
         Collision col = collisions[it];
 
@@ -771,8 +791,6 @@ void check_collisions() {
 
         gizmo_capsule(col.inr.contact_point, col.inr.contact_point + col.inr.normal, vec3_unit_y, 0.2, Yellow);
     }
-
-    free(collisions);
 }
 
 void draw_tree(vec3 root_pos, int32 seed) {
