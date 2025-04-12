@@ -129,20 +129,6 @@ void loadassets() {
         return mesh;
     }
 
-    DrawBuffers load_drawable(char* name) {
-        OBJ_Data obj = load_obj(name);
-        // Mesh mesh = obj_to_flatshaded_mesh(obj);
-        Mesh mesh = obj_to_mesh(obj);
-        free_obj(obj);
-        gen_normals(mesh);
-        DrawBuffers db = create_draw_buffers(mesh);
-
-        // TODO: this is terrible, we must change definition of Mesh such that vertices and indices are dynamic arrays
-        list_delete(mesh.vertices);
-        free(mesh.indices);
-        return db;
-    }
-
     char*[] asset_name = {
         "pyramid.obj",
         "Boat2.obj",
@@ -152,9 +138,7 @@ void loadassets() {
     for 0 .. asset_name.length {
         let mesh = load_mesh(concat("../shared_assets/", asset_name[it]));
 
-        // TODO: this is terrible, we must change definition of Mesh such that vertices and indices are dynamic arrays
-        list_delete(mesh.vertices);
-        free(mesh.indices);
+        mesh_free(mesh);
 
         list_add(*all_meshes, *mesh);
     }
@@ -166,10 +150,8 @@ void loadassets() {
     Mesh Boate_Mesh = load_mesh("../shared_assets/Boate_Smooth.obj");
     Boate = create_draw_buffers(Boate_Mesh);
     Boate_Capsule = boat_collider_from_mesh(Boate_Mesh);
+    mesh_free(Boate_Mesh);
 
-    // TODO: this is terrible, we must change definition of Mesh such that vertices and indices are dynamic arrays
-    list_delete(Boate_Mesh.vertices);
-    free(Boate_Mesh.indices);
 
     {
         OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
@@ -181,8 +163,7 @@ void loadassets() {
 
         firstTownscaper = create_draw_buffers(mesh);
         free_obj(obj);
-        list_delete(mesh.vertices);
-        free(mesh.indices);
+        mesh_free(mesh);
     }
 
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");

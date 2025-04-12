@@ -103,8 +103,7 @@ void init_terrain() {
         float32 scale = region_size / size as float32;
         let plane = gen_plane(size, uv_scale, scale);
         let db = create_draw_buffers(plane);
-        free(plane.vertices);
-        free(plane.indices);
+        mesh_free(plane);
         return db;
     }
 
