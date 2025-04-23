@@ -8,13 +8,15 @@ DrawBuffers full_res_plane_mesh;
 DrawBuffers quad_plane_mesh;
 
 const region_size = 128; // 1 << chunk_lod_count;
-const region_count = 7;
+const region_count = 61;
 
 const regions_array_size = region_count * region_count;
 TerrainRegion[regions_array_size] regions;
 
 const height_map_res_downscale = 4;
 const height_map_res = region_size / height_map_res_downscale + 2; // +2 here is to make chunk aware of the heights of the edges of neighboring chunks to remove ugly seam
+
+uint32[] lod_index = { 0, 0, 1, 2, 3, 4, 5 };
 
 struct TerrainRegion {
     float32* height_map;
@@ -28,12 +30,22 @@ struct TerrainRegion {
 }
 
 float32 sample(TerrainRegion* chunk, ivec2 uv) {
-
     if uv.x < 0 or uv.x >= height_map_res
     or uv.y < 0 or uv.y >= height_map_res print("UV: ", uv, "\n");
 
-
     return chunk.height_map[uv.y*height_map_res + uv.x];
+}
+
+float32 bsample(TerrainRegion* chunk, vec2 uv) {
+    ivec2 fl = make_ivec(floor(uv));
+    vec2 fr = fract(uv);
+
+    let s00 = sample(chunk, fl + make_ivec(0, 0));
+    let s10 = sample(chunk, fl + make_ivec(1, 0));
+    let s01 = sample(chunk, fl + make_ivec(0, 1));
+    let s11 = sample(chunk, fl + make_ivec(1, 1));
+
+    return lerp(fr.y, lerp(fr.x, s00, s10), lerp(fr.x, s01, s11));
 }
 
 float32 bilinear_sample(TerrainRegion* chunk, vec2 uv) {
@@ -155,8 +167,11 @@ TerrainRegion* get_recyclable_chunk(ivec2 camera_coord) {
 
 float32 terrain_noise(vec2 coord) {
     float32 h = -30;
+
+    float32 f(vec2 v) return 1 - abs(gnoise(v));
+
     h += gnoise(coord / 5_000) * 200;
-    h += gnoise(coord / 100) * 30;
+    h += f(coord / 100) * 30;
     return h;
 }
 
@@ -244,7 +259,6 @@ void render_terrain() {
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         }
 
-        uint32[] lod_index = { 0, 0, 1, 2, 3, 4, 5 };
         let rel = chunk.coord - camera_coord;
         chunk.lod = min(max(abs(rel.x), abs(rel.y)), lod_index.length - 1);
         draw_elements(chunk_meshes[lod_index[chunk.lod]]);

@@ -75,7 +75,7 @@ BoatStat player_stat = {
     cannon_range = 60,
     cannon_reload_time = 3,
 
-    boat_speed = 200,
+    boat_speed = 4,
     boat_turn_speed = 300
 };
 
@@ -249,6 +249,21 @@ void main() {
     spawn_world();
     init_terrain();
 
+
+    struct SaveData {
+        GameViewMode mode;
+        Transform cam_tr;
+    }
+
+    let save_data = read_binary_file("save.bin");
+    if save_data.data {
+        print("Loaded Save\n");
+        SaveData* data = save_data.data;
+        game_view_mode = data.mode;
+        cam.transform = data.cam_tr;
+    }
+
+
     while grax_loop() {
         float32 dt = deltatime();
 
@@ -262,8 +277,8 @@ void main() {
                     camera_orbit_control(*cam, e.tr.position);
                 }
 
-                const torque = 5;
-                const force = 0.2;
+                const torque = 1;
+                const force = 1;
 
                 if key('D') add_torque(*e.rb, ({0, torque, 0} as vec3) * dt);
                 if key('A') add_torque(*e.rb, ({0, -torque, 0} as vec3) * dt);
@@ -312,6 +327,13 @@ void main() {
 
         gizmo_dispatch();
     }
+
+    {
+        SaveData data = {};
+        data.mode = game_view_mode;
+        data.cam_tr = cam.transform;
+        write_binary_file("save.bin", *data, sizeof SaveData);
+    }
 }
 
 void update_world() {
@@ -340,6 +362,12 @@ void update_world() {
 }
 
 vec3 tree_pos;
+
+bool key_toggle(char key) {
+    static bool[0xFF] state;
+    if key_pressed(key) state[key] = !state[key];
+    return state[key];
+}
 
 void draw_world(DeferredRenderer* R, Camera cam) {
 
@@ -371,10 +399,10 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     //     draw_geometry(R, pyramid, make_mat4(pos, 10));
     // }
 
-    if true {
+    if key_toggle('P') {
         let center = round2multiple(cam.transform.position, region_size);
         int32 num_v = region_size / height_map_res_downscale + 2;
-        float32 m = region_size / (region_size as float32 / height_map_res_downscale + 1);
+        float32 m = region_size / (num_v-1) as float32;
         for y:0..num_v for x:0..num_v {
             vec3 pos = center + {x, 0, y} * m - make_vec3(region_size/2);
             pos.y = terrian_height(pos.x, pos.z);
@@ -386,8 +414,9 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
         let chunk = get_chunk(get_chunk_coord(cam.transform.position.x, cam.transform.position.z));
         if chunk {
+            let start_pos = center - make_vec3(region_size/2);
             for y:0..num_v for x:0..num_v {
-                vec3 pos = center + {x, 0, y} * m - make_vec3(region_size/2);
+                vec3 pos = start_pos + {x, 0, y} * m;
                 pos.y = sample(chunk, make_ivec(x, y));
                 gizmo_point(pos, Red, 0.2);
             }
@@ -447,8 +476,8 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
         enable_depth_test();
         enable_alpha_blending();
-        // bind(water_texture, 1);
-        bind(white_texture, 1);
+        bind(water_texture, 1);
+        // bind(white_texture, 1);
 
         for 0 .. regions_array_size {
             let chunk = *regions[it];
@@ -456,15 +485,15 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             bind_texture2D(chunk.height_map_tex, 2);
             vec2 chunk_pos = make_vec(chunk.coord * (region_size));
             set_uniform("water_pos", chunk_pos);
-            // draw_elements(chunk_meshes[chunk.lod]);
-            if chunk.lod < 2 {
+            // draw_elements(chunk_meshes[lod_index[chunk.lod]]);
+            if chunk.lod < 4 {
                 draw_elements(full_res_plane_mesh);
             } else {
                 draw_elements(quad_plane_mesh);
             }
         }
 
-        if false {
+        if true {
             const count = 10;
             for y: 0 .. count for x: 0 .. count {
                 vec2 pos = make_vec(x - count/2, y - count/2) + round(xz(cam.transform.position));
@@ -493,9 +522,26 @@ void gerstner_wave(vec2 coord, dir, float32 steepness, wave_length, vec3* pos, t
 
 vec3 water_offset(vec2 coord) {
     vec3 wpos = {};
-    gerstner_wave(coord, normalize(make_vec(1, 1.3)), 0.25, 18, *wpos, null, null);
-    gerstner_wave(coord, normalize(make_vec(1, 0.6)), 0.04, 31, *wpos, null, null);
-    gerstner_wave(coord, normalize(make_vec(0.5, 1)), 0.1,  7,  *wpos, null, null);
+
+    float32 wave_steepness = 1.0; // TODO: ...
+
+    int32 iterations = 12;
+    for (int32 i = 0, i < iterations, i++) {
+        float32 a = i*1232.399963;
+        vec2 dir = make_vec(sinf(a), cosf(a));
+
+        // float32 st = 0.4 / (i+1);
+        float32 st = 0.1;
+        // float32 st = mix(0.25, 0.01, float32(i) / (iterations-1));
+
+        float32 wave_len = (i+1)*10;
+
+        gerstner_wave(coord, dir, st * wave_steepness, wave_len, *wpos, null, null);
+    }
+
+    // gerstner_wave(coord, normalize(make_vec(1, 1.3)), 0.25, 18, *wpos, null, null);
+    // gerstner_wave(coord, normalize(make_vec(1, 0.6)), 0.04, 31, *wpos, null, null);
+    // gerstner_wave(coord, normalize(make_vec(0.5, 1)), 0.1,  7,  *wpos, null, null);
     return wpos;
 }
 

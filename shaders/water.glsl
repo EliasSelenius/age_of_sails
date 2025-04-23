@@ -60,10 +60,25 @@ void main() {
     vec3 binormal = vec3(0, 0, 1);
 
     vec2 coord = water_pos + a_Pos.xz;
-    gerstner_wave(0, coord, normalize(vec2(1, 1.3)), 0.25 * wave_steepness, 18, water_offset, tangent, binormal);
-    gerstner_wave(0, coord, normalize(vec2(1, 0.6)), 0.04 * wave_steepness, 31, water_offset, tangent, binormal);
-    gerstner_wave(0, coord, normalize(vec2(0.5, 1)), 0.10 * wave_steepness, 7,  water_offset, tangent, binormal);
-    gerstner_wave(-depth, vec2(0), shore_dir,        0.25 * shore_wave_steepness, 10, water_offset, tangent, binormal);
+
+    const int iterations = 12;
+    for (int i = 0; i < iterations; i++) {
+        float a = i*1232.399963;
+        vec2 dir = vec2(sin(a), cos(a));
+
+        // float st = 0.4 / (i+1);
+        float st = 0.1;
+        // float st = mix(0.1, 0.05, float(i) / (iterations-1));
+
+        float wave_len = (i+1)*10;
+
+        gerstner_wave(0, coord, dir, st * wave_steepness, wave_len, water_offset, tangent, binormal);
+    }
+
+    // gerstner_wave(0, coord, normalize(vec2(1, 1.3)), 0.25 * wave_steepness, 18, water_offset, tangent, binormal);
+    // gerstner_wave(0, coord, normalize(vec2(1, 0.6)), 0.04 * wave_steepness, 31, water_offset, tangent, binormal);
+    // gerstner_wave(0, coord, normalize(vec2(0.5, 1)), 0.10 * wave_steepness, 7,  water_offset, tangent, binormal);
+    // gerstner_wave(-depth, vec2(0), shore_dir,        0.25 * shore_wave_steepness, 10, water_offset, tangent, binormal);
 
 
     vec3 normal = normalize(cross(binormal, tangent));
@@ -92,6 +107,7 @@ void main() {
     if (geom_depth < 0.001) geom_depth = 9999.0; // TODO: we might be able to remove this if statement if we clear g_buffer_pos with large z values
     float depth = geom_depth - length(v2f.pos);
 
+    // vec4 deep_water = vec4(0.023, 0.051, 0.082, 1.0);
     vec4 deep_water = vec4(0.15, 0.4, 1.0, 1.0);
     vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.1);
     float alpha = 1 - exp(-depth * depth_factor);
