@@ -1,6 +1,8 @@
 
 
 
+bool terrain_wireframe = false;
+
 
 const chunk_lod_count = 6;
 DrawBuffers[chunk_lod_count] chunk_meshes;
@@ -166,12 +168,16 @@ TerrainRegion* get_recyclable_chunk(ivec2 camera_coord) {
 }
 
 float32 terrain_noise(vec2 coord) {
-    float32 h = -30;
+    float32 h = -200;
 
     float32 f(vec2 v) return 1 - abs(gnoise(v));
+    float32 f2(vec2 v) return expf(gnoise(v) - 1);
 
-    h += gnoise(coord / 5_000) * 200;
-    h += f(coord / 100) * 30;
+    let l = f2(coord / 3_000) * 2;
+    h += l*l * 200;
+    h += f2(coord / 100) * 60;
+    // // h += f2(coord / 1_000) * 100;
+
     return h;
 }
 
@@ -203,18 +209,18 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
 
     vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
 
-    for 0 .. 10 {
-        let en = spawn_entity(*db_palm, *white_texture);
-        en.has_buoyancy = false;
-        en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
-        en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
-        en.tr.scale = make_vec3(1);
-        en.does_collide = false;
+    // for 0 .. 10 {
+    //     let en = spawn_entity(*db_palm, *white_texture);
+    //     en.has_buoyancy = false;
+    //     en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
+    //     en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
+    //     en.tr.scale = make_vec3(1);
+    //     en.does_collide = false;
 
-        en.pbr.albedo = { random01(), random01(), random01() };
-        en.pbr.metallic = random01();
-        en.pbr.roughness = random01();
-    }
+    //     en.pbr.albedo = { random01(), random01(), random01() };
+    //     en.pbr.metallic = random01();
+    //     en.pbr.roughness = random01();
+    // }
 
     return 1;
 }
@@ -240,7 +246,6 @@ void render_terrain() {
     } done:
 
 
-    static bool terrain_wireframe = false;
     if key_pressed('Z') {
         terrain_wireframe = !terrain_wireframe;
     }
@@ -255,14 +260,18 @@ void render_terrain() {
         set_uniform("chunk_pos", chunk_pos);
 
 
-        if terrain_wireframe {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        }
-
         let rel = chunk.coord - camera_coord;
         chunk.lod = min(max(abs(rel.x), abs(rel.y)), lod_index.length - 1);
+        set_uniform("u_color_additive", 0, 0, 0);
         draw_elements(chunk_meshes[lod_index[chunk.lod]]);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        if terrain_wireframe {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            set_uniform("u_color_additive", 0, 10, 0);
+            draw_elements(chunk_meshes[lod_index[chunk.lod]]);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
+
 
         vec3 pos = {chunk_pos.x, 30, chunk_pos.y};
         gizmo_current_color = chunk.color;

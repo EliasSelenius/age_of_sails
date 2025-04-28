@@ -117,6 +117,31 @@ Capsule boat_collider_from_mesh(Mesh m) {
     return c;
 }
 
+struct World {
+    Entity* town;
+    Entity* player_boat;
+    Entity* boat2;
+}
+
+World world = {};
+
+
+enum GameViewMode { BoatControl; FreeCam; }
+GameViewMode game_view_mode = .BoatControl;
+
+bool sim_pause = false;
+
+vec3 tree_pos;
+
+// Entity* entities = list_create(sizeof Entity);
+Entity* entities = malloc(100_000 * sizeof Entity);
+uint32 entities_count = 0;
+
+CannonBall* cannon_balls = list_create(sizeof CannonBall);
+
+Particle[..] particles = list_create(sizeof Particle);
+Batch_Of_Points particle_batch;
+
 void loadassets() {
 
     Mesh load_mesh(char* name) {
@@ -177,14 +202,6 @@ void loadassets() {
 
 }
 
-struct World {
-    Entity* town;
-    Entity* player_boat;
-    Entity* boat2;
-}
-
-World world = {};
-
 void spawn_world() {
     cam.transform.position = { 0, 0, -10 };
 
@@ -228,12 +245,6 @@ void on_event(AppEvent event, AppEventData data) {
     }
 }
 
-enum GameViewMode { BoatControl; FreeCam; }
-GameViewMode game_view_mode = .BoatControl;
-
-bool sim_pause = false;
-
-
 void main() {
     app.on_event = on_event;
     grax_init();
@@ -245,6 +256,8 @@ void main() {
     let R = *renderer;
 
     R.shader_skybox = skybox_shader; // TODO: hack!
+
+    particle_batch = create_batch_of_points();
 
     spawn_world();
     init_terrain();
@@ -356,12 +369,18 @@ void update_world() {
 
         ball.vel.y -= 9.8 * dt; // gravity
         ball.pos = ball.pos + ball.vel * dt;
+
+        spawn_particle(ball.pos, random_unit_vec3());
     }
+
+    for 0 .. list_length(particles) {
+        let p = *particles[it];
+        p.pos = p.pos + p.vel*dt;
+    }
+
 
     check_collisions();
 }
-
-vec3 tree_pos;
 
 bool key_toggle(char key) {
     static bool[0xFF] state;
@@ -485,15 +504,21 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             bind_texture2D(chunk.height_map_tex, 2);
             vec2 chunk_pos = make_vec(chunk.coord * (region_size));
             set_uniform("water_pos", chunk_pos);
-            // draw_elements(chunk_meshes[lod_index[chunk.lod]]);
+            DrawBuffers water_db;
             if chunk.lod < 4 {
-                draw_elements(full_res_plane_mesh);
+                water_db = full_res_plane_mesh;
             } else {
-                draw_elements(quad_plane_mesh);
+                water_db = chunk_meshes[lod_index[chunk.lod]];
             }
+
+            if terrain_wireframe {
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            }
+            draw_elements(water_db);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
-        if true {
+        if false {
             const count = 10;
             for y: 0 .. count for x: 0 .. count {
                 vec2 pos = make_vec(x - count/2, y - count/2) + round(xz(cam.transform.position));
@@ -501,6 +526,21 @@ void draw_world(DeferredRenderer* R, Camera cam) {
                 gizmo_point(make_vec(pos.x, height, pos.y), White);
             }
         }
+    }
+
+    {
+        for 0 .. list_length(particles) {
+            Particle p = particles[it];
+
+            GizmoPoint gp = {};
+            gp.pos = p.pos;
+            gp.size = 1;
+            gp.color = White;
+            add_point(*particle_batch, gp);
+        }
+
+        use(*gizmo_points_shader);
+        dispatch(*particle_batch);
     }
 
     end_frame(R);
@@ -564,6 +604,11 @@ struct Particle {
     vec3 pos, vel;
 }
 
+void spawn_particle(vec3 pos, vel) {
+    Particle p = { pos, vel };
+    list_add(*particles, *p);
+}
+
 struct Entity {
     Texture2D* texture;
     DrawBuffers* db;
@@ -583,10 +628,6 @@ struct Entity {
     vec3 capsule_a, capsule_b;
     float32 capsule_radius;
 }
-
-// Entity* entities = list_create(sizeof Entity);
-Entity* entities = malloc(100_000 * sizeof Entity);
-uint32 entities_count = 0;
 
 Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     Entity e = {};
@@ -613,7 +654,6 @@ Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
 }
 
 struct CannonBall { vec3 pos, vel; uint32 damage; }
-CannonBall* cannon_balls = list_create(sizeof CannonBall);
 
 void spawn_cannonball(vec3 pos, vel, uint32 damage) {
     CannonBall ball = { pos, vel, damage };
