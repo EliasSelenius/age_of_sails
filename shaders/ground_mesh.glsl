@@ -6,9 +6,10 @@ IO FragData {
     float height;
 } v2f;
 
+#include "../grax/shaders/noise.glsl"
+
 #ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "../grax/shaders/noise.glsl"
 #include "../grax/shaders/camera.glsl"
 
 uniform vec2 chunk_pos;
@@ -47,6 +48,8 @@ layout (location = 0) out vec4 FragPos_Metallic;
 layout (location = 1) out vec4 FragNormal_Roughness;
 layout (location = 2) out vec3 FragColor;
 
+uniform vec3 u_color_additive = vec3(1.0);
+
 void main() {
     FragPos_Metallic.xyz = v2f.pos;
     FragPos_Metallic.w   = 0;
@@ -55,8 +58,9 @@ void main() {
     FragNormal_Roughness.w   = 0.9;
 
     float contour = 1.0 - step(0.01, fract(v2f.height));
+    FragColor = vec3(0.0); //vec3(contour);// + vec3(v2f.uv, 0.0);
 
-    FragColor = vec3(contour) + vec3(v2f.uv, 0.0);
+    FragColor += u_color_additive;
 }
 
 #endif

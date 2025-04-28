@@ -44,6 +44,8 @@ void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, fl
     binormal += vec3(-s, c, -s) * vec3(dir.x * dir.y, dir.y, dir.y * dir.y) * steepness;
 }
 
+uniform int iterations = 12;
+
 void main() {
     vec4 terrain = get_terrain();
     float depth = -terrain.w;
@@ -61,7 +63,7 @@ void main() {
 
     vec2 coord = water_pos + a_Pos.xz;
 
-    const int iterations = 12;
+    // const int iterations = 32;
     for (int i = 0; i < iterations; i++) {
         float a = i*1232.399963;
         vec2 dir = vec2(sin(a), cos(a));
@@ -110,9 +112,11 @@ void main() {
     // vec4 deep_water = vec4(0.023, 0.051, 0.082, 1.0);
     vec4 deep_water = vec4(0.15, 0.4, 1.0, 1.0);
     vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.1);
-    float alpha = 1 - exp(-depth * depth_factor);
+    float alpha = clamp(1 - exp(-depth * depth_factor), 0, 1);
     vec4 color = mix(shallow_water, deep_water, alpha) * texture(water_tex, v2f.uv);
-    color += vec4(step(depth, 0.1));
+
+    // shore line foam
+    color += vec4(step(alpha, 0.01)) * exp(-length(v2f.pos) * 0.005);
 
 
     Geometry g;
@@ -129,5 +133,8 @@ void main() {
     light += sun_radiance * g.albedo * ambient;
 
     FragColor = vec4(light, color.a);
+
+    float b = 0.0005;
+    FragColor = mix(FragColor, vec4(0.5, 0.6, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
 }
 #endif
