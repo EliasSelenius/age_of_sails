@@ -11,6 +11,7 @@ IO FragData {
 #ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "../grax/shaders/camera.glsl"
+#include "shaders/ground.glsl"
 
 uniform vec2 chunk_pos;
 uniform sampler2D height_map;
@@ -19,11 +20,10 @@ layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
 layout (location = 2) in vec2 a_Uv;
 
-#include "shaders/ground.glsl"
 
 void main() {
 
-    vec4 terrain = get_terrain();
+    vec4 terrain = get_terrain(height_map, a_Uv);
     vec3 normal = terrain.xyz;
     float height = terrain.w;
 
@@ -40,8 +40,43 @@ void main() {
 
     gl_Position = camera.projection * pos;
 }
-
 #endif
+
+
+#ifdef TessControl //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+layout (vertices = 4) out;
+
+in vec2 in_uvs[];
+out vec2 out_uvs[];
+
+void main() {
+    int id = gl_InvocationID;
+    gl_out[id].gl_Position = gl_in[id].gl_Position;
+    out_uvs[id] = in_uvs[id];
+
+    gl_TessLevelOuter[0] = 1;
+    gl_TessLevelOuter[1] = 1;
+    gl_TessLevelOuter[2] = 1;
+    gl_TessLevelOuter[3] = 1;
+
+    gl_TessLevelInner[0] = 1;
+    gl_TessLevelInner[1] = 1;
+}
+#endif
+
+
+#ifdef TessEval /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+layout (quads, equal_spacing, ccw) in;
+
+in vec2 in_uvs[];
+out vec2 out_uv;
+
+void main() {
+    gl_TessCoord;
+}
+#endif
+
+
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 layout (location = 0) out vec4 FragPos_Metallic;
@@ -62,5 +97,4 @@ void main() {
 
     FragColor += u_color_additive;
 }
-
 #endif

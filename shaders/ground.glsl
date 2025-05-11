@@ -1,5 +1,5 @@
 
-vec4 get_terrain() {
+vec4 get_terrain(sampler2D height_map, vec2 a_Uv) {
     // float region_size = 128;
     // float height_map_res_downscale = 4;
 

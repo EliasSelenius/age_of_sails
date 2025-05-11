@@ -79,6 +79,7 @@ BoatStat player_stat = {
     boat_turn_speed = 300
 };
 
+DeferredRenderer renderer;
 
 Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 
@@ -97,6 +98,8 @@ DrawBuffers Boate;
 DrawBuffers Boat2;
 DrawBuffers firstTownscaper;
 DrawBuffers db_palm;
+DrawBuffers db_quad;
+
 
 Capsule Boate_Capsule;
 
@@ -196,7 +199,7 @@ void loadassets() {
     water_texture = load_texture2D("../shared_assets/Water.bmp");
 
 
-    water_shader = load_shader("shaders/water.glsl");
+    water_shader = load_shader("shaders/water.glsl", true, false);
     ground_shader = load_shader("shaders/ground_mesh.glsl");
     skybox_shader = load_shader("shaders/skybox.glsl");
 
@@ -226,18 +229,19 @@ void spawn_world() {
 
 void on_event(AppEvent event, AppEventData data) {
 
-    void reload_shader(Shader* shader) {
+    void reload_shader(Shader* shader, bool tess, geom) {
         delete_shader(@shader);
-        @shader = load_shader(shader.name.chars);
+        @shader = load_shader(shader.name.chars, tess, geom);
     }
 
     switch event {
         case .key_press: {
             if data.key == 'R' {
 
-                reload_shader(*skybox_shader);
-                reload_shader(*ground_shader);
-                reload_shader(*water_shader);
+                reload_shader(*skybox_shader, false, false);
+                reload_shader(*ground_shader, false, false);
+                reload_shader(*water_shader, true, false);
+                reload_shader(*renderer.shader_dirlight, false, false);
 
                 print("SHADER RELOAD\n");
             }
@@ -252,7 +256,7 @@ void main() {
 
     loadassets();
 
-    let renderer = deferred_renderer_init();
+    renderer = deferred_renderer_init();
     let R = *renderer;
 
     R.shader_skybox = skybox_shader; // TODO: hack!
@@ -276,6 +280,7 @@ void main() {
         cam.transform = data.cam_tr;
     }
 
+    glPatchParameteri(GL_PATCH_VERTICES, 4);
 
     while grax_loop() {
         float32 dt = deltatime();
@@ -286,9 +291,9 @@ void main() {
 
                 if key_down(GLFW_KEY_LEFT_SHIFT) {
                     fire_cannons(e, mouse_pressed(Left_Mouse));
-                } else {
-                    camera_orbit_control(*cam, e.tr.position);
                 }
+
+                camera_orbit_control(*cam, e.tr.position);
 
                 const torque = 1;
                 const force = 1;
@@ -364,7 +369,7 @@ void update_world() {
         if ball.pos.y < approx_water_height(xz(ball.pos)) {
             list_unordered_remove(cannon_balls, it);
             it--;
-            break;
+            continue;
         }
 
         ball.vel.y -= 9.8 * dt; // gravity
@@ -376,6 +381,12 @@ void update_world() {
     for 0 .. list_length(particles) {
         let p = *particles[it];
         p.pos = p.pos + p.vel*dt;
+        p.life_time += dt;
+
+        if p.life_time > 2 {
+            list_unordered_remove(particles, it);
+            it--;
+        }
     }
 
 
@@ -511,10 +522,10 @@ void draw_world(DeferredRenderer* R, Camera cam) {
                 water_db = chunk_meshes[lod_index[chunk.lod]];
             }
 
-            if terrain_wireframe {
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            }
-            draw_elements(water_db);
+            if terrain_wireframe  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glBindVertexArray(db_quad.vao);
+            glDrawArrays(GL_PATCHES, 0, 4);
+            glBindVertexArray(0);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
@@ -602,6 +613,7 @@ float32 approx_water_height(vec2 coord) {
 
 struct Particle {
     vec3 pos, vel;
+    float32 life_time;
 }
 
 void spawn_particle(vec3 pos, vel) {
@@ -618,6 +630,8 @@ struct Entity {
     with Rigidbody rb;
 
     float32 cannon_reload;
+    uint32 next_cannon;
+    bool fire_cannons;
     bool sails_unfurled;
     bool has_buoyancy;
 
@@ -661,8 +675,10 @@ void spawn_cannonball(vec3 pos, vel, uint32 damage) {
 }
 
 void fire_cannons(Entity* en, bool fire) {
-    if en.cannon_reload > 0  return;
-    if fire en.cannon_reload = player_stat.cannon_reload_time;
+    if en.fire_cannons       return; // already in firing sequence
+    if en.cannon_reload > 0  return; // reloading
+
+    if fire en.fire_cannons = true;
 
     let model = to_matrix(en.tr);
 
@@ -675,10 +691,23 @@ void fire_cannons(Entity* en, bool fire) {
     for 0 .. cc {
         vec3 pos = en.tr.position + left*3 + up*2 + forward*(it - cc/2 as float32)*3;
         vec3 vel = dir * player_stat.cannon_range;
-
-        if fire spawn_cannonball(pos, vel, player_stat.cannon_damage);
-        else draw_trajectory(pos, vel);
+        draw_trajectory(pos, vel);
     }
+}
+
+void fire_cannon(Entity* en, uint32 cannon_index) {
+    let model = to_matrix(en.tr);
+
+    vec3 left    = xyz(model.row1);
+    vec3 up      = xyz(model.row2);
+    vec3 forward = xyz(model.row3);
+
+    vec3 dir = left + vec3_unit_y*0.2;
+    uint32 cc = player_stat.cannon_count;
+    vec3 pos = en.tr.position + left*3 + up*2 + forward*(cannon_index - cc/2 as float32)*3;
+    vec3 vel = dir * player_stat.cannon_range;
+
+    spawn_cannonball(pos, vel, player_stat.cannon_damage);
 }
 
 void draw_trajectory(vec3 pos, vel) {
@@ -697,7 +726,18 @@ void draw_trajectory(vec3 pos, vel) {
 */
 
 void update(Entity* e, float32 dt) {
-    if e.cannon_reload > 0   e.cannon_reload -= dt;
+
+    if e.cannon_reload > 0 {
+        e.cannon_reload -= dt;
+    } else if e.fire_cannons {
+        fire_cannon(e, e.next_cannon++);
+        e.cannon_reload = random_range(0.0, 0.1);
+        if e.next_cannon >= player_stat.cannon_count {
+            e.fire_cannons = false;
+            e.cannon_reload = player_stat.cannon_reload_time;
+            e.next_cannon = 0;
+        }
+    }
 
     if e.has_buoyancy {
         e.rb.velocity.y -= 9.8 * dt; // gravity

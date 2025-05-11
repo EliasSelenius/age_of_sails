@@ -47,7 +47,11 @@ void main() {
     // vec3 sky_color = vec3(0.1, 0.1, 1);
     vec3 sky_color = vec3(0.1, 0.5, 0.9);
 
-    FragColor = vec4(sky_color + vec3(MiePhase), 1.0);
+    if (sky_dir.y < 0) {
+        FragColor = vec4(0.5, 0.6, 0.7, 1.0); //  vec4(0.1, 0.4, 0.7, 1.0);
+    } else {
+        FragColor = vec4(sky_color + vec3(MiePhase), 1.0);
+    }
 
     // FragColor = vec4(abs(sky_dir), 1.0);
 }

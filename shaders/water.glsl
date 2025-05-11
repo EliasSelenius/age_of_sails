@@ -2,16 +2,11 @@
 #include "../grax/shaders/app.glsl"
 #include "../grax/shaders/camera.glsl"
 #include "../grax/shaders/lights.glsl"
+#include "shaders/ground.glsl"
 
 
 #define Pi 3.14159265359
 #define Tau (2.0 * Pi)
-
-IO FragData {
-    vec3 pos;
-    vec3 normal;
-    vec2 uv;
-} v2f;
 
 layout (binding = 0) uniform sampler2D g_buffer_pos;
 layout (binding = 1) uniform sampler2D water_tex;
@@ -22,14 +17,59 @@ uniform float depth_factor = 0.13;
 
 
 #ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
 layout (location = 2) in vec2 a_Uv;
 
+void main() {
+    gl_Position = vec4(a_Pos, 1.0);
+}
+#endif
 
-#include "shaders/ground.glsl"
 
+#ifdef TessControl //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+layout (vertices = 4) out;
+
+float get_tess_level(vec2 coord) {
+
+    vec4 pos = vec4(coord.x, 0.0, coord.y, 1.0);
+    float dist = length((camera.view * pos).xyz);
+
+
+    float min_dist = 0; //  128;
+    float max_dist = 128*30;
+
+    float min_tess = 1;
+    float max_tess = 128;
+
+    return mix(min_tess, max_tess, clamp(pow((max_dist - dist) / (max_dist - min_dist), 16), 0.0, 1.0));
+}
+
+void main() {
+    gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
+
+
+    float d = 128.0 / 2.0;
+    gl_TessLevelOuter[0] = get_tess_level(water_pos + vec2( 0, -d)); // -z
+    gl_TessLevelOuter[1] = get_tess_level(water_pos + vec2(-d,  0)); // -x
+    gl_TessLevelOuter[2] = get_tess_level(water_pos + vec2( 0,  d)); // +z
+    gl_TessLevelOuter[3] = get_tess_level(water_pos + vec2( d,  0)); // +x
+
+    float level = get_tess_level(water_pos);
+    gl_TessLevelInner[0] = level;
+    gl_TessLevelInner[1] = level;
+}
+#endif
+
+
+#ifdef TessEval /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+layout (quads, equal_spacing, ccw) in;
+
+out FragData {
+    vec3 pos;
+    vec3 normal;
+    vec2 uv;
+} v2f;
 
 // wave direction must be normalized
 void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, float wave_length, inout vec3 pos, inout vec3 tangent, inout vec3 binormal) {
@@ -44,14 +84,22 @@ void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, fl
     binormal += vec3(-s, c, -s) * vec3(dir.x * dir.y, dir.y, dir.y * dir.y) * steepness;
 }
 
-uniform int iterations = 12;
-
 void main() {
-    vec4 terrain = get_terrain();
+    vec2 uv = gl_TessCoord.xy;
+
+    vec4 p0 = gl_in[0].gl_Position;
+    vec4 p1 = gl_in[1].gl_Position;
+    vec4 p2 = gl_in[2].gl_Position;
+    vec4 p3 = gl_in[3].gl_Position;
+
+    vec4 vert_pos = mix(mix(p0, p1, uv.x), mix(p2, p3, uv.x), uv.y);
+
+
+    vec4 terrain = get_terrain(height_map, uv);
     float depth = -terrain.w;
     vec2 shore_dir = -normalize(terrain.xz);
 
-    float scaling_factor = smoothstep(0, 1, depth / 20.0);
+    float scaling_factor = smoothstep(0.0, 60.0, depth);
     float wave_steepness = scaling_factor;
     float shore_wave_steepness = 1 - wave_steepness;
 
@@ -61,9 +109,9 @@ void main() {
     vec3 tangent  = vec3(1, 0, 0);
     vec3 binormal = vec3(0, 0, 1);
 
-    vec2 coord = water_pos + a_Pos.xz;
+    vec2 coord = water_pos + vert_pos.xz;
 
-    // const int iterations = 32;
+    const int iterations = 12;
     for (int i = 0; i < iterations; i++) {
         float a = i*1232.399963;
         vec2 dir = vec2(sin(a), cos(a));
@@ -85,20 +133,24 @@ void main() {
 
     vec3 normal = normalize(cross(binormal, tangent));
 
-    vec4 wpos = vec4(a_Pos, 1.0);
+    vec4 wpos = vert_pos;
     wpos.xz += water_pos;
     wpos.xyz += water_offset;
 
     v2f.pos = (camera.view * wpos).xyz;
     v2f.normal = mat3(camera.view) * normal;
-    v2f.uv = a_Uv * 10;
+    v2f.uv = uv * 10;
     gl_Position = camera.projection * camera.view * wpos;
 }
-
 #endif
 
 
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+in FragData {
+    vec3 pos;
+    vec3 normal;
+    vec2 uv;
+} v2f;
 
 out vec4 FragColor;
 
@@ -126,6 +178,10 @@ void main() {
     g.roughness = 0.4;
     g.metallic = 0.0;
 
+    if (!gl_FrontFacing) {
+        g.normal = -g.normal;
+    }
+
     vec3 sun_dir      = camera.sun_dir.xyz;
     vec3 sun_radiance = camera.sun_radiance.xyz;
     vec3 light = calc_dir_light(sun_dir, sun_radiance, g);
@@ -134,7 +190,25 @@ void main() {
 
     FragColor = vec4(light, color.a);
 
-    float b = 0.0005;
-    FragColor = mix(FragColor, vec4(0.5, 0.6, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
+    // float b = 0.0005;
+    // FragColor = mix(FragColor, vec4(0.5, 0.6, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
+
+    if (gl_FrontFacing) { // atmosphere
+        float sun_amount = maxdot(normalize(v2f.pos), normalize(mat3(camera.view) * camera.sun_dir.xyz));
+        vec3 fog_color = mix(vec3(0.5, 0.6, 0.7), // blue
+                             vec3(1.0, 0.9, 0.7), // yellow
+                             pow(sun_amount, 8.0));
+
+        float b = 0.0005;
+        FragColor = mix(FragColor, vec4(fog_color, 1.0), 1 - exp(-length(v2f.pos)*b));
+
+
+        // float b = 0.0005;
+        // FragColor = mix(FragColor, vec4(0.5, 0.6, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
+    } else { // water
+        float b = 0.005;
+        FragColor = mix(FragColor, vec4(0.1, 0.4, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
+    }
+
 }
 #endif

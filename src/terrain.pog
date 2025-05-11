@@ -7,7 +7,6 @@ bool terrain_wireframe = false;
 const chunk_lod_count = 6;
 DrawBuffers[chunk_lod_count] chunk_meshes;
 DrawBuffers full_res_plane_mesh;
-DrawBuffers quad_plane_mesh;
 
 const region_size = 128; // 1 << chunk_lod_count;
 const region_count = 61;
@@ -134,7 +133,7 @@ void init_terrain() {
     }
 
     full_res_plane_mesh = create_plane(region_size);
-    quad_plane_mesh = create_plane(1);
+    db_quad = create_plane(1);
 
     Color[] colors = {White, Gray, Black, Red, Green, Blue, Yellow, Cyan, Purple};
 
@@ -209,18 +208,18 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
 
     vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
 
-    // for 0 .. 10 {
-    //     let en = spawn_entity(*db_palm, *white_texture);
-    //     en.has_buoyancy = false;
-    //     en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
-    //     en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
-    //     en.tr.scale = make_vec3(1);
-    //     en.does_collide = false;
+    for 0 .. 10 {
+        let en = spawn_entity(*db_palm, *white_texture);
+        en.has_buoyancy = false;
+        en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
+        en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
+        en.tr.scale = make_vec3(1);
+        en.does_collide = false;
 
-    //     en.pbr.albedo = { random01(), random01(), random01() };
-    //     en.pbr.metallic = random01();
-    //     en.pbr.roughness = random01();
-    // }
+        en.pbr.albedo = { random01(), random01(), random01() };
+        en.pbr.metallic = random01();
+        en.pbr.roughness = random01();
+    }
 
     return 1;
 }
