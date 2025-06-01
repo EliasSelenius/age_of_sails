@@ -37,12 +37,12 @@ float get_tess_level(vec2 coord) {
 
 
     float min_dist = 0; //  128;
-    float max_dist = 128*30;
+    float max_dist = 128*15;
 
     float min_tess = 1;
-    float max_tess = 128;
+    float max_tess = 128; // TODO: prob max out at 64 or 32
 
-    return mix(min_tess, max_tess, clamp(pow((max_dist - dist) / (max_dist - min_dist), 16), 0.0, 1.0));
+    return mix(min_tess, max_tess, clamp(pow((max_dist - dist) / (max_dist - min_dist), 4), 0.0, 1.0));
 }
 
 void main() {
@@ -85,15 +85,17 @@ void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, fl
 }
 
 void main() {
-    vec2 uv = gl_TessCoord.xy;
 
     vec4 p0 = gl_in[0].gl_Position;
     vec4 p1 = gl_in[1].gl_Position;
     vec4 p2 = gl_in[2].gl_Position;
     vec4 p3 = gl_in[3].gl_Position;
 
-    vec4 vert_pos = mix(mix(p0, p1, uv.x), mix(p2, p3, uv.x), uv.y);
+    // vec2 uv = gl_TessCoord.xy;
+    vec4 vert_pos = mix(mix(p0, p1, gl_TessCoord.x), mix(p2, p3, gl_TessCoord.x), gl_TessCoord.y);
 
+    vec2 uv = (vert_pos.xz + vec2(64.0)) / 128.0;
+    // vec2 uv = gl_TessCoord.xy;
 
     vec4 terrain = get_terrain(height_map, uv);
     float depth = -terrain.w;
@@ -117,13 +119,19 @@ void main() {
         vec2 dir = vec2(sin(a), cos(a));
 
         // float st = 0.4 / (i+1);
-        float st = 0.1;
+        float st = 0.06; // 0.1;
         // float st = mix(0.1, 0.05, float(i) / (iterations-1));
 
         float wave_len = (i+1)*10;
 
         gerstner_wave(0, coord, dir, st * wave_steepness, wave_len, water_offset, tangent, binormal);
     }
+
+    vec2 wave_pos = vec2(40, 100);
+    vec2 dir = wave_pos - coord;
+    float phase = length(dir);
+    dir = phase == 0 ? vec2(0) : normalize(dir);
+    gerstner_wave(phase, vec2(0), dir, 0.3*exp(-phase*0.01), 18, water_offset, tangent, binormal);
 
     // gerstner_wave(0, coord, normalize(vec2(1, 1.3)), 0.25 * wave_steepness, 18, water_offset, tangent, binormal);
     // gerstner_wave(0, coord, normalize(vec2(1, 0.6)), 0.04 * wave_steepness, 31, water_offset, tangent, binormal);

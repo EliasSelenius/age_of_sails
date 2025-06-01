@@ -22,12 +22,9 @@ TODOs:
 
 
     Today:
-    - capsule collision
-    - cannon aim
 
 
     what to do for minimal viable product:
-        - cannon aim/fire
         - boat sinking
         - ai ships that fire back
         - finnished boat model
@@ -287,26 +284,42 @@ void main() {
 
         switch game_view_mode {
             case .BoatControl: {
-                let e = world.player_boat;
+                let en = world.player_boat;
 
                 if key_down(GLFW_KEY_LEFT_SHIFT) {
-                    fire_cannons(e, mouse_pressed(Left_Mouse));
+                    disable_cursor();
+
+                    float32 pm = Pi/4;
+                    en.cannon_yaw = clamp(en.cannon_yaw + Input.mouse_delta.x, -pm, pm);
+                    en.cannon_pitch = clamp(en.cannon_pitch + Input.mouse_delta.y, -pm, pm);
+
+                    let target = get_cannon_dir(en)*30 + en.tr.position;
+                    Transform tr = cam.transform;
+                    look_at(*tr, target);
+                    cam.transform.rotation = nlerp(0.1, cam.transform.rotation, tr.rotation);
+                    cam.transform.position = cam.transform.position + en.rb.velocity*dt;
+
+                    aim_cannons(en, mouse_pressed(Left_Mouse));
+                } else {
+                    camera_orbit_control(*cam, en.tr.position + vec3_unit_y*6);
                 }
 
-                camera_orbit_control(*cam, e.tr.position);
 
                 const torque = 1;
-                const force = 1;
 
-                if key('D') add_torque(*e.rb, ({0, torque, 0} as vec3) * dt);
-                if key('A') add_torque(*e.rb, ({0, -torque, 0} as vec3) * dt);
+                if key('D') add_torque(*en.rb, ({0, torque, 0} as vec3) * dt);
+                if key('A') add_torque(*en.rb, ({0, -torque, 0} as vec3) * dt);
 
-                if key('W') add_force(*e.rb, forward(e.tr) * force * player_stat.boat_speed * dt);
-                if key('S') add_force(*e.rb, {0, 1, 0} as vec3);
+                if key('W') {
+                    en.sails_unfurled = true;
+                }
+                if key('S') {
+                    en.sails_unfurled = false;
+                }
 
                 if key_pressed(GLFW_KEY_ENTER) game_view_mode = .FreeCam;
 
-                float32 speed = length(e.rb.velocity);
+                float32 speed = length(en.rb.velocity);
                 draw_text({0,0}as vec2, 0.04, to_string(speed as uint32), White);
 
             } break;
@@ -333,6 +346,8 @@ void main() {
         // gizmo_transform(*world.town.tr, cam);
 
         if key_pressed('P') sim_pause = !sim_pause;
+
+        update_matrices(*cam);
 
         if sim_pause {
             if key_pressed('O') update_world();
@@ -367,6 +382,14 @@ void update_world() {
         let ball = *cannon_balls[it];
 
         if ball.pos.y < approx_water_height(xz(ball.pos)) {
+
+            for 0 .. 100 {
+                vec3 vel = ball.vel;
+                vel.y *= -1;
+                vel = (vel*0.1 + random_unit_vec3()*5 + vec3_unit_y*10)*random01();
+                spawn_particle(ball.pos, vel);
+            }
+
             list_unordered_remove(cannon_balls, it);
             it--;
             continue;
@@ -382,6 +405,8 @@ void update_world() {
         let p = *particles[it];
         p.pos = p.pos + p.vel*dt;
         p.life_time += dt;
+
+        p.vel = p.vel - vec3_unit_y*9.8*dt;
 
         if p.life_time > 2 {
             list_unordered_remove(particles, it);
@@ -419,8 +444,14 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     for 0 .. list_length(cannon_balls) {
         CannonBall* ball = *cannon_balls[it];
 
+        Material_PBR mat = {
+            albedo = {0, 0, 0},
+            metallic = 1,
+            roughness = 0.1
+        };
+
         mat4 model = make_mat4(ball.pos, 0.2);
-        draw_geometry(R, R.db_inverted_box, model);
+        draw_geometry(R, R.db_inverted_box, mat, model);
     }
 
     // {
@@ -546,13 +577,20 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             GizmoPoint gp = {};
             gp.pos = p.pos;
             gp.size = 1;
-            gp.color = White;
+            gp.color = opacity(White, 0.3);
             add_point(*particle_batch, gp);
         }
 
+        // enable_additive_blending();
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         use(*gizmo_points_shader);
         dispatch(*particle_batch);
     }
+
+    bool is_under_water = cam.transform.position.y <= approx_water_height(xz(cam.transform.position));
+
 
     end_frame(R);
 }
@@ -582,7 +620,7 @@ vec3 water_offset(vec2 coord) {
         vec2 dir = make_vec(sinf(a), cosf(a));
 
         // float32 st = 0.4 / (i+1);
-        float32 st = 0.1;
+        float32 st = 0.06;
         // float32 st = mix(0.25, 0.01, float32(i) / (iterations-1));
 
         float32 wave_len = (i+1)*10;
@@ -629,6 +667,11 @@ struct Entity {
     with Transform tr;
     with Rigidbody rb;
 
+    float32 buoyancy_force_coff;
+
+    uint32 hp;
+
+    float32 cannon_yaw, cannon_pitch;
     float32 cannon_reload;
     uint32 next_cannon;
     bool fire_cannons;
@@ -644,10 +687,17 @@ struct Entity {
 }
 
 Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
+    if entities_count >= 100_000 {
+        print("Max entity count reached.\n");
+        return null;
+    }
+
     Entity e = {};
     e.texture = tex;
     e.db = db;
     e.tr = transform_default();
+    e.hp = 9; // 60;
+    e.buoyancy_force_coff = 1;
 
     e.pbr = {{1,1,1}, 0.1, 0.1};
 
@@ -667,14 +717,23 @@ Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     return res;
 }
 
-struct CannonBall { vec3 pos, vel; uint32 damage; }
+struct CannonBall {
+    vec3 pos, vel;
+    uint32 damage;
+}
 
 void spawn_cannonball(vec3 pos, vel, uint32 damage) {
     CannonBall ball = { pos, vel, damage };
     list_add(*cannon_balls, *ball);
 }
 
-void fire_cannons(Entity* en, bool fire) {
+vec3 get_cannon_dir(Entity* en) {
+    let c = cosf(en.cannon_pitch);
+    vec3 dir = { cosf(en.cannon_yaw)*c, sinf(en.cannon_pitch), sinf(en.cannon_yaw)*c };
+    return dir * make_mat3(to_matrix(en.tr));
+}
+
+void aim_cannons(Entity* en, bool fire) {
     if en.fire_cannons       return; // already in firing sequence
     if en.cannon_reload > 0  return; // reloading
 
@@ -686,11 +745,12 @@ void fire_cannons(Entity* en, bool fire) {
     vec3 up      = xyz(model.row2);
     vec3 forward = xyz(model.row3);
 
-    vec3 dir = left + vec3_unit_y*0.2;
+    // vec3 dir = left + vec3_unit_y*0.2 + forward*en.cannon_yaw + up*en.cannon_pitch;
+    let dir = get_cannon_dir(en);
     uint32 cc = player_stat.cannon_count;
     for 0 .. cc {
-        vec3 pos = en.tr.position + left*3 + up*2 + forward*(it - cc/2 as float32)*3;
-        vec3 vel = dir * player_stat.cannon_range;
+        vec3 pos = en.tr.position + left*4 + up*2 + forward*(it - cc/2 as float32)*3;
+        vec3 vel = noz(dir) * player_stat.cannon_range;
         draw_trajectory(pos, vel);
     }
 }
@@ -702,10 +762,11 @@ void fire_cannon(Entity* en, uint32 cannon_index) {
     vec3 up      = xyz(model.row2);
     vec3 forward = xyz(model.row3);
 
-    vec3 dir = left + vec3_unit_y*0.2;
+    // vec3 dir = left + vec3_unit_y*0.2 + forward*en.cannon_yaw + up*en.cannon_pitch;
+    let dir = get_cannon_dir(en);
     uint32 cc = player_stat.cannon_count;
-    vec3 pos = en.tr.position + left*3 + up*2 + forward*(cannon_index - cc/2 as float32)*3;
-    vec3 vel = dir * player_stat.cannon_range;
+    vec3 pos = en.tr.position + left*4 + up*2 + forward*(cannon_index - cc/2 as float32)*3;
+    vec3 vel = noz(dir) * player_stat.cannon_range;
 
     spawn_cannonball(pos, vel, player_stat.cannon_damage);
 }
@@ -727,6 +788,20 @@ void draw_trajectory(vec3 pos, vel) {
 
 void update(Entity* e, float32 dt) {
 
+    { // draw health bar
+        let arcndc = world2arcndc(cam, e.tr.position);
+        if arcndc.z <= 1 {
+            let pos = xy(arcndc);
+            // draw_text(arcndc, 0.05, concat("HP:", to_string(e.hp)), Red);
+
+            let prct = e.hp as float32 / 60.0;
+
+            vec2 size = {0.2, 0.01};
+            draw_rect(pos, size, Gray);
+            draw_rect(pos, size * make_vec(prct, 1), Red);
+        }
+    }
+
     if e.cannon_reload > 0 {
         e.cannon_reload -= dt;
     } else if e.fire_cannons {
@@ -743,6 +818,11 @@ void update(Entity* e, float32 dt) {
         e.rb.velocity.y -= 9.8 * dt; // gravity
     }
 
+    if e.sails_unfurled {
+        add_force(*e.rb, forward(e.tr) * player_stat.boat_speed * dt);
+    }
+
+
     float32 damp_factor = 0.5;
     e.rb.velocity = e.rb.velocity - e.rb.velocity * damp_factor * dt;
 
@@ -756,7 +836,7 @@ void update(Entity* e, float32 dt) {
             {  2.1, -1, -10.0 }
         };
 
-        void check_buoyancy(Rigidbody* rb, mat4 model, vec3 point, float32 dt) {
+        void check_buoyancy(Entity* en, mat4 model, vec3 point, float32 dt) {
             let offset = xyz(mul(make_vec(point, 1.0), model));
             let water_height = approx_water_height(xz(offset));
 
@@ -766,7 +846,7 @@ void update(Entity* e, float32 dt) {
             if offset.y < water_height {
                 vec3 force = { 0, 2.5 * (water_height - offset.y) * dt, 0 };
                 let loc = xyz(mul(make_vec(point, 0), model));
-                add_force(rb, force, loc);
+                add_force(*en.rb, force*en.buoyancy_force_coff, loc);
             }
         }
 
@@ -778,18 +858,37 @@ void update(Entity* e, float32 dt) {
         let model = to_matrix(e.tr);
         for 0 .. offsets.length {
             let o = offsets[it];
-            check_buoyancy(*e.rb, model, o, dt);
+            check_buoyancy(e, model, o, dt);
             o.x *= -1;
-            check_buoyancy(*e.rb, model, o, dt);
+            check_buoyancy(e, model, o, dt);
         }
     }
 
     update_rigidbody_transform(*e.tr, *e.rb, dt);
 
-    if e.does_collide { // debug draw collider
+    if e.hp == 0 {
+        e.buoyancy_force_coff = clamp(e.buoyancy_force_coff-(dt*0.01), 0, 1);
+    }
+
+
+    if e.does_collide {
         let m = to_matrix(e.tr);
         let A = xyz(mul(make_vec(e.capsule_a, 1), m));
         let B = xyz(mul(make_vec(e.capsule_b, 1), m));
+
+        for 0 .. list_length(cannon_balls) {
+            let ball = *cannon_balls[it];
+            let inr = capsule_point_intersects(A, B, ball.pos, e.capsule_radius); // TODO: could just transform ball.pos to entitys local space, it would be one less matrix mul
+            if 0 < inr.depth {
+                e.highlight = true;
+                if e.hp != 0 {
+                    e.hp--;
+                }
+                list_unordered_remove(cannon_balls, it);
+                it--;
+            }
+        }
+
         gizmo_capsule(A, B, xyz(m.row2), e.capsule_radius, e.highlight ? Red : Green);
 
 
@@ -798,7 +897,6 @@ void update(Entity* e, float32 dt) {
         vec3 v = cross(p, e.rb.angular_velocity);// + e.rb.velocity;
         draw_vel(p + e.tr.position, v);
     }
-
 
     e.highlight = false;
 }
