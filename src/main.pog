@@ -296,7 +296,7 @@ void main() {
                     let target = get_cannon_dir(en)*30 + en.tr.position;
                     Transform tr = cam.transform;
                     look_at(*tr, target);
-                    cam.transform.rotation = nlerp(0.1, cam.transform.rotation, tr.rotation);
+                    cam.transform.rotation = slerp(0.1, cam.transform.rotation, tr.rotation);
                     cam.transform.position = cam.transform.position + en.rb.velocity*dt;
 
                     aim_cannons(en, mouse_pressed(Left_Mouse));
