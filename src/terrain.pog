@@ -8,8 +8,11 @@ const chunk_lod_count = 6;
 DrawBuffers[chunk_lod_count] chunk_meshes;
 DrawBuffers full_res_plane_mesh;
 
+const render_distance = 10;
+
 const region_size = 128; // 1 << chunk_lod_count;
-const region_count = 61;
+const region_count = render_distance*2 + 1;
+
 
 const regions_array_size = region_count * region_count;
 TerrainRegion[regions_array_size] regions;
@@ -152,20 +155,6 @@ TerrainRegion* get_chunk(ivec2 coord) {
     return null;
 }
 
-TerrainRegion* get_recyclable_chunk(ivec2 camera_coord) {
-    int32 r = region_count / 2;
-    for 0 .. regions_array_size {
-        let chunk = *regions[it];
-        let rel_coord = chunk.coord - camera_coord;
-        if rel_coord.x < -r or rel_coord.x > r
-        or rel_coord.y < -r or rel_coord.y > r {
-            return chunk;
-        }
-    }
-
-    return null;
-}
-
 float32 terrain_noise(vec2 coord) {
     float32 h = -200;
 
@@ -196,6 +185,20 @@ void regenerate_heightmap(TerrainRegion* region) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+TerrainRegion* get_recyclable_chunk(ivec2 camera_coord) {
+    int32 r = region_count / 2;
+    for 0 .. regions_array_size {
+        let chunk = *regions[it];
+        let rel_coord = chunk.coord - camera_coord;
+        if rel_coord.x < -r or rel_coord.x > r
+        or rel_coord.y < -r or rel_coord.y > r {
+            return chunk;
+        }
+    }
+
+    return null;
+}
+
 uint32 ensure_chunk(ivec2 coord, camera_coord) {
     for 0 .. regions_array_size {
         let chunk = *regions[it];
@@ -204,7 +207,7 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
 
     let chunk = get_recyclable_chunk(camera_coord);
     chunk.coord = coord;
-    regenerate_heightmap(chunk);
+    // regenerate_heightmap(chunk);
 
     vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
 
@@ -251,29 +254,27 @@ void render_terrain() {
 
 
     use(*ground_shader);
+    bind_texture2D(chunk.height_map_tex, 0);
+    bind_texture2D(texture_sand.gl_handle, 1);
+    bind_texture2D(texture_grass.gl_handle, 2);
+    bind_texture2D(texture_cliff.gl_handle, 3);
+
     for 0 .. regions_array_size {
         let chunk = *regions[it];
 
-        bind_texture2D(chunk.height_map_tex, 0);
         vec2 chunk_pos = make_vec(chunk.coord * region_size);
         set_uniform("chunk_pos", chunk_pos);
 
-
         let rel = chunk.coord - camera_coord;
         chunk.lod = min(max(abs(rel.x), abs(rel.y)), lod_index.length - 1);
-        set_uniform("u_color_additive", 0, 0, 0);
+        set_uniform("u_color_tint", 0, 0, 0, 0);
         draw_elements(chunk_meshes[lod_index[chunk.lod]]);
 
         if terrain_wireframe {
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            set_uniform("u_color_additive", 0, 10, 0);
+            set_uniform("u_color_tint", 0, 10, 0, 1);
             draw_elements(chunk_meshes[lod_index[chunk.lod]]);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
-
-
-        vec3 pos = {chunk_pos.x, 30, chunk_pos.y};
-        gizmo_current_color = chunk.color;
-        // gizmo_sphere(pos, region_size / 100);
     }
 }

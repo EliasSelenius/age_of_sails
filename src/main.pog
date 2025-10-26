@@ -4,6 +4,8 @@ include "../grax/grax.pog";
 include "kmeans.pog";
 include "src/terrain.pog";
 
+include "../plang/common/builtin/types.pog";
+
 // ..\plang\bin\plang.exe src\main.pog cflags -lglfw3dll -O3
 // ..\plang\bin\plang.exe src\main.pog cflags -lglfw3dll -O0 -g -fsanitize=address -fno-omit-frame-pointer
 
@@ -20,6 +22,14 @@ TODOs:
     - automatic generation of buoyancy points
     - automatic mass calculation. (Calculate volume of mesh)
 
+    - terrain sand texture
+    - terrain grass texture
+    - terrain rock texture (triplanar mapping)
+    - terrain tesselation
+        - write tess stages in shader
+        - generate patches indices
+        - tesselate away the chunk seems
+    - terrain noise follow curve
 
     Today:
 
@@ -89,6 +99,9 @@ Shader skybox_shader;
 Texture2D test_color_texture;
 Texture2D town_texture;
 Texture2D water_texture;
+Texture2D texture_sand;
+Texture2D texture_grass;
+Texture2D texture_cliff;
 
 DrawBuffers pyramid;
 DrawBuffers Boate;
@@ -97,6 +110,7 @@ DrawBuffers firstTownscaper;
 DrawBuffers db_palm;
 DrawBuffers db_quad;
 
+RenderLayer static_ui;
 
 Capsule Boate_Capsule;
 
@@ -194,6 +208,10 @@ void loadassets() {
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
     town_texture = load_texture2D("../shared_assets/TownColor.bmp");
     water_texture = load_texture2D("../shared_assets/Water.bmp");
+    texture_sand = load_texture2D("assets/Bright_Desert_Sand_sjzkfega_1K_BaseColor.bmp");
+    texture_grass = load_texture2D("assets/Grass_Cut_pjvqk0_1K_BaseColor.bmp");
+    texture_cliff = load_texture2D("assets/Layered_Rock_Cliff_tlonbisya_1K_BaseColor.bmp");
+
 
 
     water_shader = load_shader("shaders/water.glsl", true, false);
@@ -250,6 +268,8 @@ void main() {
     app.on_event = on_event;
     grax_init();
     gizmo_setup();
+    static_ui = create_layer();
+    immediate_layer = *static_ui;
 
     loadassets();
 
@@ -282,7 +302,7 @@ void main() {
     while grax_loop() {
         float32 dt = deltatime();
 
-        switch game_view_mode {
+        switch (game_view_mode) {
             case .BoatControl: {
                 let en = world.player_boat;
 
@@ -318,10 +338,6 @@ void main() {
                 }
 
                 if key_pressed(GLFW_KEY_ENTER) game_view_mode = .FreeCam;
-
-                float32 speed = length(en.rb.velocity);
-                draw_text({0,0}as vec2, 0.04, to_string(speed as uint32), White);
-
             } break;
 
             case .FreeCam: {
@@ -359,6 +375,7 @@ void main() {
         draw_world(R, cam);
 
         gizmo_dispatch();
+        dispatch_layer(*static_ui, {scale=1} as Transform2D);
     }
 
     {
@@ -526,7 +543,7 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
     begin_light_pass(R);
 
-    { // water
+    if key_toggle('J') { // water
         use(*water_shader);
 
         static float32 depth_factor = 0.2;
