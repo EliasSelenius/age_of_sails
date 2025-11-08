@@ -2,6 +2,7 @@
 #include "../grax/shaders/app.glsl"
 #include "../grax/shaders/camera.glsl"
 #include "../grax/shaders/lights.glsl"
+#include "../grax/shaders/noise.glsl"
 #include "shaders/ground.glsl"
 
 
@@ -15,6 +16,15 @@ layout (binding = 2) uniform sampler2D height_map;
 uniform vec2 water_pos;
 uniform float depth_factor = 0.13;
 
+#define Def_FragData FragData {\
+    vec3 pos;\
+    vec3 normal;\
+    vec2 uv;\
+}\
+
+#define EvalData_Block EvalData {\
+    vec3 pos;\
+}\
 
 #ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 layout (location = 0) in vec3 a_Pos;
@@ -29,6 +39,8 @@ void main() {
 
 #ifdef TessControl //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 layout (vertices = 4) out;
+
+out EvalData_Block out_patch[];
 
 float get_tess_level(vec2 coord) {
 
@@ -64,12 +76,9 @@ void main() {
 
 #ifdef TessEval /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 layout (quads, equal_spacing, ccw) in;
+in EvalData_Block input[];
 
-out FragData {
-    vec3 pos;
-    vec3 normal;
-    vec2 uv;
-} v2f;
+out Def_FragData v2f;
 
 // wave direction must be normalized
 void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, float wave_length, inout vec3 pos, inout vec3 tangent, inout vec3 binormal) {
@@ -102,7 +111,8 @@ void main() {
     vec2 shore_dir = -normalize(terrain.xz);
 
     float scaling_factor = smoothstep(0.0, 60.0, depth);
-    float wave_steepness = scaling_factor;
+    // float wave_steepness = scaling_factor;
+    float wave_steepness = 1.0;
     float shore_wave_steepness = 1 - wave_steepness;
 
     // shore_wave_steepness *= step(dot(terrain.xyz, vec3(0, 1, 0)), 0.99);
@@ -154,11 +164,7 @@ void main() {
 
 
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-in FragData {
-    vec3 pos;
-    vec3 normal;
-    vec2 uv;
-} v2f;
+in Def_FragData v2f;
 
 out vec4 FragColor;
 
@@ -173,10 +179,17 @@ void main() {
     vec4 deep_water = vec4(0.15, 0.4, 1.0, 1.0);
     vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.1);
     float alpha = clamp(1 - exp(-depth * depth_factor), 0, 1);
-    vec4 color = mix(shallow_water, deep_water, alpha) * texture(water_tex, v2f.uv);
+    vec4 color = mix(shallow_water, deep_water, alpha); // * texture(water_tex, v2f.uv);
 
     // shore line foam
     color += vec4(step(alpha, 0.01)) * exp(-length(v2f.pos) * 0.005);
+
+
+    {
+        float n = noised3(vec3(v2f.uv * 10.0, Time*0.2)).w;
+        n = smoothstep(0.3, 1.0, n);
+        color += vec4(vec3(n), 0);
+    }
 
 
     Geometry g;

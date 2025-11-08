@@ -27,9 +27,18 @@ TODOs:
     - terrain rock texture (triplanar mapping)
     - terrain tesselation
         - write tess stages in shader
-        - generate patches indices
+        - use glDrawArrays(elementCount = size*size*4) and generate vertex data in shader
         - tesselate away the chunk seems
     - terrain noise follow curve
+
+    water:
+        - subsurface scattering
+        - foam
+        - correct mesh resolution
+
+    Particles:
+        - point sprites
+        - some with gravity others without
 
     Today:
 
@@ -245,7 +254,7 @@ void spawn_world() {
 void on_event(AppEvent event, AppEventData data) {
 
     void reload_shader(Shader* shader, bool tess, geom) {
-        delete_shader(@shader);
+        delete_shader(shader);
         @shader = load_shader(shader.name.chars, tess, geom);
     }
 
