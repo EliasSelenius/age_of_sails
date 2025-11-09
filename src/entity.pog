@@ -1,0 +1,357 @@
+
+
+// Entity* entities = list_create(sizeof Entity);
+Entity* entities = malloc(100_000 * sizeof Entity);
+uint32 entities_count = 0;
+
+CannonBall* cannon_balls = list_create(sizeof CannonBall);
+
+struct CannonBall {
+    vec3 pos, vel;
+    uint32 damage;
+}
+
+void spawn_cannonball(vec3 pos, vel, uint32 damage) {
+    CannonBall ball = { pos, vel, damage };
+    list_add(*cannon_balls, *ball);
+}
+
+struct Entity {
+    Texture2D* texture;
+    DrawBuffers* db;
+    Material_PBR pbr;
+
+    with Transform tr;
+    with Rigidbody rb;
+
+    float32 buoyancy_force_coff;
+
+    uint32 hp;
+
+    float32 cannon_yaw, cannon_pitch;
+    float32 cannon_reload;
+    uint32 next_cannon;
+    bool fire_cannons;
+    bool sails_unfurled;
+    bool has_buoyancy;
+
+    bool does_collide;
+
+    bool highlight;
+
+    vec3 capsule_a, capsule_b;
+    float32 capsule_radius;
+}
+
+Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
+    if entities_count >= 100_000 {
+        print("Max entity count reached.\n");
+        return null;
+    }
+
+    Entity e = {};
+    e.texture = tex;
+    e.db = db;
+    e.tr = transform_default();
+    e.hp = 9; // 60;
+    e.buoyancy_force_coff = 1;
+
+    e.pbr = {{1,1,1}, 0.1, 0.1};
+
+    e.rb = {};
+    e.rb.mass = 1;
+
+    e.has_buoyancy = true;
+    e.does_collide = true;
+
+    e.capsule_a = Boate_Capsule.a;
+    e.capsule_b = Boate_Capsule.b;
+    e.capsule_radius = Boate_Capsule.radius;
+
+    // return list_add(*entities, *e);
+    let res = *entities[entities_count++];
+    @res = e;
+    return res;
+}
+
+vec3 get_cannon_dir(Entity* en) {
+    let c = cosf(en.cannon_pitch);
+    vec3 dir = { cosf(en.cannon_yaw)*c, sinf(en.cannon_pitch), sinf(en.cannon_yaw)*c };
+    return dir * make_mat3(to_matrix(en.tr));
+}
+
+void aim_cannons(Entity* en, bool fire) {
+    if en.fire_cannons       return; // already in firing sequence
+    if en.cannon_reload > 0  return; // reloading
+
+    if fire en.fire_cannons = true;
+
+    let model = to_matrix(en.tr);
+
+    vec3 left    = xyz(model.row1);
+    vec3 up      = xyz(model.row2);
+    vec3 forward = xyz(model.row3);
+
+    // vec3 dir = left + vec3_unit_y*0.2 + forward*en.cannon_yaw + up*en.cannon_pitch;
+    let dir = get_cannon_dir(en);
+    uint32 cc = player_stat.cannon_count;
+    for 0 .. cc {
+        vec3 pos = en.tr.position + left*4 + up*2 + forward*(it - cc/2 as float32)*3;
+        vec3 vel = noz(dir) * player_stat.cannon_range;
+        draw_trajectory(pos, vel);
+    }
+}
+
+void fire_cannon(Entity* en, uint32 cannon_index) {
+    let model = to_matrix(en.tr);
+
+    vec3 left    = xyz(model.row1);
+    vec3 up      = xyz(model.row2);
+    vec3 forward = xyz(model.row3);
+
+    // vec3 dir = left + vec3_unit_y*0.2 + forward*en.cannon_yaw + up*en.cannon_pitch;
+    let dir = get_cannon_dir(en);
+    uint32 cc = player_stat.cannon_count;
+    vec3 pos = en.tr.position + left*4 + up*2 + forward*(cannon_index - cc/2 as float32)*3;
+    vec3 vel = noz(dir) * player_stat.cannon_range;
+
+    spawn_cannonball(pos, vel, player_stat.cannon_damage);
+}
+
+void draw_trajectory(vec3 pos, vel) {
+    float32 dt = 1 / 60.0;
+    for 0 .. 100 {
+        vel.y -= 9.8 * dt;
+        pos = pos + vel * dt;
+
+        gizmo_point(pos, White);
+    }
+}
+
+
+/*
+    40 = velocity
+*/
+
+void update(Entity* e, float32 dt) {
+
+    { // draw health bar
+        let arcndc = world2arcndc(cam, e.tr.position);
+        if arcndc.z <= 1 {
+            let pos = xy(arcndc);
+            // draw_text(arcndc, 0.05, concat("HP:", to_string(e.hp)), Red);
+
+            let prct = e.hp as float32 / 60.0;
+
+            vec2 size = {0.2, 0.01};
+            draw_rect(pos, size, Gray);
+            draw_rect(pos, size * make_vec(prct, 1), Red);
+        }
+    }
+
+    if e.cannon_reload > 0 {
+        e.cannon_reload -= dt;
+    } else if e.fire_cannons {
+        fire_cannon(e, e.next_cannon++);
+        e.cannon_reload = random_range(0.0, 0.1);
+        if e.next_cannon >= player_stat.cannon_count {
+            e.fire_cannons = false;
+            e.cannon_reload = player_stat.cannon_reload_time;
+            e.next_cannon = 0;
+        }
+    }
+
+    if e.has_buoyancy {
+        e.rb.velocity.y -= 9.8 * dt; // gravity
+    }
+
+    if e.sails_unfurled {
+        add_force(*e.rb, forward(e.tr) * player_stat.boat_speed * dt);
+    }
+
+
+    float32 damp_factor = 0.5;
+    e.rb.velocity = e.rb.velocity - e.rb.velocity * damp_factor * dt;
+
+    float32 angular_damp = 5;
+    e.rb.angular_velocity = e.rb.angular_velocity - e.rb.angular_velocity * angular_damp * dt;
+
+    if e.has_buoyancy { // buoyancy
+        static vec3[] offsets = {
+            {  2.1, -1,  13.0 },
+            {  2.9, -1,   0.0 },
+            {  2.1, -1, -10.0 }
+        };
+
+        void check_buoyancy(Entity* en, mat4 model, vec3 point, float32 dt) {
+            let offset = xyz(mul(make_vec(point, 1.0), model));
+            let water_height = approx_water_height(xz(offset));
+
+            gizmo_point(offset, rgb(0.8));
+            gizmo_point(make_vec(offset.x, water_height, offset.z), Blue);
+
+            if offset.y < water_height {
+                vec3 force = { 0, 2.5 * (water_height - offset.y) * dt, 0 };
+                let loc = xyz(mul(make_vec(point, 0), model));
+                add_force(*en.rb, force*en.buoyancy_force_coff, loc);
+            }
+        }
+
+        // TODO: we could reduce the number of matrix multiplications to 1/4.
+        // first: do the mirroring in world space.
+        // second: in check_buoyancy() there are two matrix mul, one with translation and one without
+        // we can do a single mat3 mul and just add translation afterwards
+
+        let model = to_matrix(e.tr);
+        for 0 .. offsets.length {
+            let o = offsets[it];
+            check_buoyancy(e, model, o, dt);
+            o.x *= -1;
+            check_buoyancy(e, model, o, dt);
+        }
+    }
+
+    update_rigidbody_transform(*e.tr, *e.rb, dt);
+
+    if e.hp == 0 {
+        e.buoyancy_force_coff = clamp(e.buoyancy_force_coff-(dt*0.01), 0, 1);
+    }
+
+
+    if e.does_collide {
+        let m = to_matrix(e.tr);
+        let A = xyz(mul(make_vec(e.capsule_a, 1), m));
+        let B = xyz(mul(make_vec(e.capsule_b, 1), m));
+
+        for 0 .. list_length(cannon_balls) {
+            let ball = *cannon_balls[it];
+            let inr = capsule_point_intersects(A, B, ball.pos, e.capsule_radius); // TODO: could just transform ball.pos to entitys local space, it would be one less matrix mul
+            if 0 < inr.depth {
+                e.highlight = true;
+                if e.hp != 0 {
+                    e.hp--;
+                }
+                list_unordered_remove(cannon_balls, it);
+                it--;
+            }
+        }
+
+        gizmo_capsule(A, B, xyz(m.row2), e.capsule_radius, e.highlight ? Red : Green);
+
+
+        mat3 rot_m = make_mat3(m);
+        let p = mul(make_vec(3, 1, 15), rot_m);
+        vec3 v = cross(p, e.rb.angular_velocity);// + e.rb.velocity;
+        draw_vel(p + e.tr.position, v);
+    }
+
+    e.highlight = false;
+}
+
+void draw_vel(vec3 p, v) {
+    gizmo_line(p, p+v, Yellow);
+    gizmo_point(p+v, Yellow);
+}
+
+
+
+
+void spawn_world() {
+    cam.transform.position = { 0, 0, -10 };
+
+    // spawn_entity(*pyramid, *test_color_texture).tr.position = {30, 0, 0};
+
+    // world.town = spawn_entity(*firstTownscaper, *town_texture);
+    // world.town.tr.position = { 100, -5, 0 };
+    // world.town.has_buoyancy = false;
+
+
+    world.player_boat = spawn_entity(*Boate, *test_color_texture);
+    world.player_boat.tr.position = {-20, 0, 0};
+
+    for 1 .. 2 {
+        Entity* e = spawn_entity(*Boate, *white_texture);
+        e.tr.position = {0, 0, it * 50};
+    }
+
+    // world.boat2 = spawn_entity(*Boat2, *white_texture);
+    // world.boat2.tr.scale = vec3_one * 1.5;
+}
+
+void update_world() {
+    float32 dt = 1 / 60.0;
+
+    for 0 .. entities_count {
+        let en = *entities[it];
+        update(en, dt);
+    }
+
+
+    for 0 .. list_length(cannon_balls) {
+        let ball = *cannon_balls[it];
+
+        if ball.pos.y < approx_water_height(xz(ball.pos)) {
+
+            for 0 .. 100 {
+                vec3 vel = ball.vel;
+                vel.y *= -1;
+                vel = (vel*0.1 + random_unit_vec3()*5 + vec3_unit_y*10)*random01();
+                spawn_particle(ball.pos, vel);
+            }
+
+            list_unordered_remove(cannon_balls, it);
+            it--;
+            continue;
+        }
+
+        ball.vel.y -= 9.8 * dt; // gravity
+        ball.pos = ball.pos + ball.vel * dt;
+
+        spawn_particle(ball.pos, random_unit_vec3());
+    }
+
+    for 0 .. list_length(particles) {
+        let p = *particles[it];
+        p.pos = p.pos + p.vel*dt;
+        p.life_time += dt;
+
+        p.vel = p.vel - vec3_unit_y*9.8*dt;
+
+        if p.life_time > 2 {
+            list_unordered_remove(particles, it);
+            it--;
+        }
+    }
+
+
+    check_collisions();
+}
+
+
+
+struct BoatStat {
+    uint32 max_health;
+    uint32 health_regen; // maybe make this hp/min
+
+    uint32 cannon_count; // on each side
+    uint32 cannon_damage; // damage per cannon ball
+    float32 cannon_range;
+    float32 cannon_reload_time; // seconds
+
+    float32 boat_speed; // m/s
+    float32 boat_turn_speed; // rad/s
+}
+
+BoatStat player_stat = {
+    max_health = 100,
+    health_regen = 1,
+
+    cannon_count = 8,
+    cannon_damage = 3,
+    cannon_range = 60,
+    cannon_reload_time = 3,
+
+    boat_speed = 4,
+    boat_turn_speed = 300
+};
+
