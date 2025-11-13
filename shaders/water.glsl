@@ -103,7 +103,7 @@ void main() {
     // vec2 uv = gl_TessCoord.xy;
     vec4 vert_pos = mix(mix(p0, p1, gl_TessCoord.x), mix(p2, p3, gl_TessCoord.x), gl_TessCoord.y);
 
-    vec2 uv = (vert_pos.xz + vec2(64.0)) / 128.0;
+    vec2 uv = (vert_pos.xz + vec2(64.0)) / 128.0; // TODO: hardcoded chunk dimensions
     // vec2 uv = gl_TessCoord.xy;
 
     vec4 terrain = get_terrain(height_map, uv);
@@ -157,7 +157,7 @@ void main() {
 
     v2f.pos = (camera.view * wpos).xyz;
     v2f.normal = mat3(camera.view) * normal;
-    v2f.uv = uv * 10;
+    v2f.uv = uv;
     gl_Position = camera.projection * camera.view * wpos;
 }
 #endif
@@ -185,10 +185,15 @@ void main() {
     color += vec4(step(alpha, 0.01)) * exp(-length(v2f.pos) * 0.005);
 
 
-    {
-        float n = noised3(vec3(v2f.uv * 10.0, Time*0.2)).w;
-        n = smoothstep(0.3, 1.0, n);
-        color += vec4(vec3(n), 0);
+    { // foam
+        // float n = noised3(vec3(v2f.uv * 10.0, Time*0.2)).w;
+        // n = smoothstep(0.3, 1.0, n);
+        // color += vec4(vec3(n), 0);
+
+        vec2 p = water_pos + v2f.uv*128;
+        float d = voronoi(p*0.2);
+        d = smoothstep(0.5, 2.0, d);
+        color += vec4(vec3(d), 0.0);
     }
 
 
