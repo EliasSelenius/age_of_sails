@@ -15,17 +15,12 @@ TODOs:
     - point lights
     - lantern model
     - whale model
-    - boat controller
-    - non-repetitive pattern in water
     - compas
     - map
 
     - automatic generation of buoyancy points
     - automatic mass calculation. (Calculate volume of mesh)
 
-    - terrain sand texture
-    - terrain grass texture
-    - terrain rock texture (triplanar mapping)
     - terrain tesselation
         - write tess stages in shader
         - use glDrawArrays(elementCount = size*size*4) and generate vertex data in shader
@@ -34,7 +29,13 @@ TODOs:
 
     water:
         - subsurface scattering
-        - foam
+        - better foam
+            - texture with exponential decay
+              take two textures t1 and t2
+              in compute shader sample t1 and expdecay it
+              then write value to t2 with offset such that t2 is centered on camera
+              pingpong t1 and t2
+
         - correct mesh resolution
 
     Particles:
@@ -98,6 +99,11 @@ DrawBuffers db_quad;
 RenderLayer static_ui;
 
 Capsule Boate_Capsule;
+Capsule Capsule_Human = {
+    a = vec3_zero,
+    b = {0, 1.33, 0}, // 1.33 = 1.83 - 2*0.25
+    radius = 0.25
+}
 
 struct Capsule {
     vec3 a, b;
@@ -235,6 +241,9 @@ void main() {
     renderer = deferred_renderer_init();
     let R = *renderer;
 
+    R.sun_radiance = { 10, 10, 10 };
+    R.sun_ambient_factor = 0.05;
+
     R.shader_skybox = skybox_shader; // TODO: hack!
 
     particle_batch = create_batch_of_points();
@@ -279,6 +288,11 @@ void main() {
                     cam.transform.position = cam.transform.position + en.rb.velocity*dt;
 
                     aim_cannons(en, mouse_pressed(Left_Mouse));
+
+                    if mouse_pressed(Right_Mouse) {
+                        fire_cannon(en, random_range(0, player_stat.cannon_count) as uint32);
+                    }
+
                 } else {
                     camera_orbit_control(*cam, en.tr.position + vec3_unit_y*6);
                 }
@@ -355,9 +369,6 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
     let time = app.total_run_time / 10.0;
     R.sun_dir = { cos(time), 0.5, sin(time) };
-    float32 sr = 10;
-    R.sun_radiance = { sr, sr, sr };
-    R.sun_ambient_factor = 0.05;
 
     begin_geometry_pass(R, cam);
 
@@ -365,7 +376,11 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         let en = *entities[it];
         if sqdist(en.tr.position, cam.transform.position) > region_size*2*region_size*2 continue;
 
-        draw_geometry(R, @en.db, en.pbr, en.texture.gl_handle, to_matrix(en.tr));
+        if en.db {
+            draw_geometry(R, @en.db, en.pbr, en.texture.gl_handle, to_matrix(en.tr));
+        } else {
+            gizmo_point(en.tr.position, Red, 0.5);
+        }
     }
 
     for 0 .. list_length(cannon_balls) {
@@ -482,7 +497,9 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
             if terrain_wireframe  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             glBindVertexArray(db_quad.vao);
+            glDisable(GL_CULL_FACE);
             glDrawArrays(GL_PATCHES, 0, 4);
+            glEnable(GL_CULL_FACE);
             glBindVertexArray(0);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
@@ -604,18 +621,18 @@ void check_collisions() {
         if !e1.does_collide continue;
 
         let e1_m = to_matrix(e1.tr);
-        vec3 a = xyz(mul(make_vec(e1.capsule_a, 1), e1_m));
-        vec3 b = xyz(mul(make_vec(e1.capsule_b, 1), e1_m));
+        vec3 a = xyz(mul(make_vec(e1.capsule.a, 1), e1_m));
+        vec3 b = xyz(mul(make_vec(e1.capsule.b, 1), e1_m));
 
         for j: i+1 .. entities_count {
             let e2 = *entities[j];
             if !e2.does_collide continue;
 
             let e2_m = to_matrix(e2.tr);
-            vec3 c = xyz(mul(make_vec(e2.capsule_a, 1), e2_m));
-            vec3 d = xyz(mul(make_vec(e2.capsule_b, 1), e2_m));
+            vec3 c = xyz(mul(make_vec(e2.capsule.a, 1), e2_m));
+            vec3 d = xyz(mul(make_vec(e2.capsule.b, 1), e2_m));
 
-            Intersection inr = capsule_intersects(a, b, c, d, e1.capsule_radius, e2.capsule_radius);
+            Intersection inr = capsule_intersects(a, b, c, d, e1.capsule.radius, e2.capsule.radius);
             if inr.depth > 0 {
                 Collision col = {};
                 col.e1 = e1;

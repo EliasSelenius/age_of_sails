@@ -14,11 +14,11 @@ layout (binding = 1) uniform sampler2D water_tex;
 layout (binding = 2) uniform sampler2D height_map;
 
 uniform vec2 water_pos;
-uniform float depth_factor = 0.13;
+uniform float depth_factor = 0.05;
 
 #define Def_FragData FragData {\
-    vec3 pos;\
-    vec3 normal;\
+    vec3 view_pos;\
+    vec3 view_normal;\
     vec2 uv;\
 }\
 
@@ -75,10 +75,10 @@ void main() {
 
 
 #ifdef TessEval /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 layout (quads, equal_spacing, ccw) in;
 in EvalData_Block input[];
-
-out Def_FragData v2f;
+out Def_FragData output_vertex;
 
 // wave direction must be normalized
 void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, float wave_length, inout vec3 pos, inout vec3 tangent, inout vec3 binormal) {
@@ -155,51 +155,48 @@ void main() {
     wpos.xz += water_pos;
     wpos.xyz += water_offset;
 
-    v2f.pos = (camera.view * wpos).xyz;
-    v2f.normal = mat3(camera.view) * normal;
-    v2f.uv = uv;
+    output_vertex.view_pos = (camera.view * wpos).xyz;
+    output_vertex.view_normal = mat3(camera.view) * normal;
+    output_vertex.uv = uv;
     gl_Position = camera.projection * camera.view * wpos;
 }
 #endif
 
 
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-in Def_FragData v2f;
 
+in Def_FragData input;
 out vec4 FragColor;
 
 void main() {
     vec2 screen_uv = gl_FragCoord.xy / ViewportSize;
 
-    float geom_depth = length(texture(g_buffer_pos, screen_uv).xyz);
-    if (geom_depth < 0.001) geom_depth = 9999.0; // TODO: we might be able to remove this if statement if we clear g_buffer_pos with large z values
-    float depth = geom_depth - length(v2f.pos);
+    float dist_to_geometry = length(texture(g_buffer_pos, screen_uv).xyz);
+    if (dist_to_geometry < 0.001) dist_to_geometry = 9999.0; // TODO: we might be able to remove this if statement if we clear g_buffer_pos with large z values
+
+    float dist_to_water = length(input.view_pos);
+    float depth = dist_to_geometry - dist_to_water;
 
     // vec4 deep_water = vec4(0.023, 0.051, 0.082, 1.0);
     vec4 deep_water = vec4(0.15, 0.4, 1.0, 1.0);
-    vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.1);
+    vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.3);
     float alpha = clamp(1 - exp(-depth * depth_factor), 0, 1);
-    vec4 color = mix(shallow_water, deep_water, alpha); // * texture(water_tex, v2f.uv);
+    vec4 water_color = mix(shallow_water, deep_water, alpha); // * texture(water_tex, input.uv);
 
     // shore line foam
-    color += vec4(step(alpha, 0.01)) * exp(-length(v2f.pos) * 0.005);
+    vec4 shore_line_color = vec4(step(alpha, 0.01)) * exp(-dist_to_water * 0.005);
 
+    // foam
+    vec2 p = water_pos + input.uv*128;
+    float d = voronoi(p*0.2);
+    d = smoothstep(0.5, 2.0, d);
+    vec4 foam_color = vec4(vec3(d), 0.0);
 
-    { // foam
-        // float n = noised3(vec3(v2f.uv * 10.0, Time*0.2)).w;
-        // n = smoothstep(0.3, 1.0, n);
-        // color += vec4(vec3(n), 0);
-
-        vec2 p = water_pos + v2f.uv*128;
-        float d = voronoi(p*0.2);
-        d = smoothstep(0.5, 2.0, d);
-        color += vec4(vec3(d), 0.0);
-    }
-
+    vec4 color = water_color + shore_line_color + foam_color;
 
     Geometry g;
-    g.pos = v2f.pos;
-    g.normal = v2f.normal;
+    g.pos = input.view_pos;
+    g.normal = input.view_normal;
     g.albedo = color.rgb;
     g.roughness = 0.4;
     g.metallic = 0.0;
@@ -208,32 +205,34 @@ void main() {
         g.normal = -g.normal;
     }
 
-    vec3 sun_dir      = camera.sun_dir.xyz;
-    vec3 sun_radiance = camera.sun_radiance.xyz;
-    vec3 light = calc_dir_light(sun_dir, sun_radiance, g);
-    float ambient = camera.sun_radiance.w;
-    light += sun_radiance * g.albedo * ambient;
+    vec3 sun_dir         = camera.sun_dir.xyz;
+    vec3 sun_radiance    = camera.sun_radiance.xyz;
+    float ambient_factor = camera.sun_radiance.w;
+
+    vec3 ambient = sun_radiance * g.albedo * ambient_factor;
+    vec3 light = ambient + calc_dir_light(sun_dir, sun_radiance, g);
 
     FragColor = vec4(light, color.a);
 
-    // float b = 0.0005;
-    // FragColor = mix(FragColor, vec4(0.5, 0.6, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
 
     if (gl_FrontFacing) { // atmosphere
-        float sun_amount = maxdot(normalize(v2f.pos), normalize(mat3(camera.view) * camera.sun_dir.xyz));
-        vec3 fog_color = mix(vec3(0.5, 0.6, 0.7), // blue
-                             vec3(1.0, 0.9, 0.7), // yellow
-                             pow(sun_amount, 8.0));
 
-        float b = 0.0005;
-        FragColor = mix(FragColor, vec4(fog_color, 1.0), 1 - exp(-length(v2f.pos)*b));
+        vec3 cold = vec3(0.5, 0.6, 0.7); // blue
+        vec3 warm = vec3(1.0, 0.9, 0.7); // yellow
+        // vec3 warm = vec3(1.0, 0.0, 0.0);
 
+        float sun_amount = maxdot(normalize(input.view_pos), normalize(mat3(camera.view) * sun_dir));
+        vec3 fog_color = mix(cold, warm, pow(sun_amount, 8.0));
 
-        // float b = 0.0005;
-        // FragColor = mix(FragColor, vec4(0.5, 0.6, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
+        float b = 0.001;
+        float t = 1 - exp(-dist_to_water * b);
+        FragColor = mix(FragColor, vec4(fog_color, 1.0), t);
+
     } else { // water
+        vec4 fog_color = vec4(0.1, 0.4, 0.7, 1.0);
         float b = 0.005;
-        FragColor = mix(FragColor, vec4(0.1, 0.4, 0.7, 1.0), 1 - exp(-length(v2f.pos)*b));
+        float t = 1 - exp(-dist_to_water * b);
+        FragColor = mix(FragColor, fog_color, t);
     }
 
 }

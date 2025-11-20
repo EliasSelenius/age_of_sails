@@ -4,7 +4,16 @@
 Entity* entities = malloc(100_000 * sizeof Entity);
 uint32 entities_count = 0;
 
+Entity* entity_player;
+
 CannonBall* cannon_balls = list_create(sizeof CannonBall);
+
+vec3[] buoyancy_points = {
+    {  2.1, -1,  13.0 },
+    {  2.9, -1,   0.0 },
+    {  2.1, -1, -10.0 }
+};
+
 
 struct CannonBall {
     vec3 pos, vel;
@@ -39,39 +48,51 @@ struct Entity {
 
     bool highlight;
 
-    vec3 capsule_a, capsule_b;
-    float32 capsule_radius;
+    Capsule capsule;
 }
 
-Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
+Entity entity_default() {
+    Entity en = {};
+    en.texture = *white_texture;
+    en.db = null;
+    en.tr = transform_default();
+    en.hp = 10;
+    en.buoyancy_force_coff = 1;
+
+    en.pbr = {
+        albedo = {1,1,1},
+        metallic = 0.1,
+        roughness = 0.1
+    };
+
+    en.rb = {};
+    en.rb.mass = 1;
+
+    en.has_buoyancy = true;
+    en.does_collide = true;
+
+    en.capsule = Capsule_Human;
+
+    return en;
+}
+
+Entity* spawn_entity(Entity en) {
     if entities_count >= 100_000 {
         print("Max entity count reached.\n");
         return null;
     }
 
-    Entity e = {};
-    e.texture = tex;
-    e.db = db;
-    e.tr = transform_default();
-    e.hp = 9; // 60;
-    e.buoyancy_force_coff = 1;
-
-    e.pbr = {{1,1,1}, 0.1, 0.1};
-
-    e.rb = {};
-    e.rb.mass = 1;
-
-    e.has_buoyancy = true;
-    e.does_collide = true;
-
-    e.capsule_a = Boate_Capsule.a;
-    e.capsule_b = Boate_Capsule.b;
-    e.capsule_radius = Boate_Capsule.radius;
-
-    // return list_add(*entities, *e);
     let res = *entities[entities_count++];
-    @res = e;
+    @res = en;
     return res;
+}
+
+Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
+    Entity en = entity_default();
+    en.capsule = Boate_Capsule;
+    en.texture = tex;
+    en.db = db;
+    return spawn_entity(en);
 }
 
 vec3 get_cannon_dir(Entity* en) {
@@ -88,34 +109,13 @@ void aim_cannons(Entity* en, bool fire) {
 
     let model = to_matrix(en.tr);
 
-    vec3 left    = xyz(model.row1);
-    vec3 up      = xyz(model.row2);
-    vec3 forward = xyz(model.row3);
-
-    // vec3 dir = left + vec3_unit_y*0.2 + forward*en.cannon_yaw + up*en.cannon_pitch;
     let dir = get_cannon_dir(en);
     uint32 cc = player_stat.cannon_count;
     for 0 .. cc {
-        vec3 pos = en.tr.position + left*4 + up*2 + forward*(it - cc/2 as float32)*3;
+        vec3 pos = xyz(make_vec(4, 2, (it - cc/2 as float32)*3, 1) * model);
         vec3 vel = noz(dir) * player_stat.cannon_range;
         draw_trajectory(pos, vel);
     }
-}
-
-void fire_cannon(Entity* en, uint32 cannon_index) {
-    let model = to_matrix(en.tr);
-
-    vec3 left    = xyz(model.row1);
-    vec3 up      = xyz(model.row2);
-    vec3 forward = xyz(model.row3);
-
-    // vec3 dir = left + vec3_unit_y*0.2 + forward*en.cannon_yaw + up*en.cannon_pitch;
-    let dir = get_cannon_dir(en);
-    uint32 cc = player_stat.cannon_count;
-    vec3 pos = en.tr.position + left*4 + up*2 + forward*(cannon_index - cc/2 as float32)*3;
-    vec3 vel = noz(dir) * player_stat.cannon_range;
-
-    spawn_cannonball(pos, vel, player_stat.cannon_damage);
 }
 
 void draw_trajectory(vec3 pos, vel) {
@@ -127,6 +127,19 @@ void draw_trajectory(vec3 pos, vel) {
         gizmo_point(pos, White);
     }
 }
+
+void fire_cannon(Entity* en, uint32 cannon_index) {
+    let model = to_matrix(en.tr);
+
+    let dir = get_cannon_dir(en);
+    uint32 cc = player_stat.cannon_count;
+    vec3 pos = xyz(make_vec(4, 2, (cannon_index - cc/2 as float32)*3, 1) * model);
+    vec3 vel = noz(dir) * player_stat.cannon_range;
+
+    spawn_cannonball(pos, vel, player_stat.cannon_damage);
+}
+
+
 
 
 /*
@@ -177,12 +190,6 @@ void update(Entity* e, float32 dt) {
     e.rb.angular_velocity = e.rb.angular_velocity - e.rb.angular_velocity * angular_damp * dt;
 
     if e.has_buoyancy { // buoyancy
-        static vec3[] offsets = {
-            {  2.1, -1,  13.0 },
-            {  2.9, -1,   0.0 },
-            {  2.1, -1, -10.0 }
-        };
-
         void check_buoyancy(Entity* en, mat4 model, vec3 point, float32 dt) {
             let offset = xyz(mul(make_vec(point, 1.0), model));
             let water_height = approx_water_height(xz(offset));
@@ -202,12 +209,17 @@ void update(Entity* e, float32 dt) {
         // second: in check_buoyancy() there are two matrix mul, one with translation and one without
         // we can do a single mat3 mul and just add translation afterwards
 
+        vec3[] offsets = { vec3_zero };
+        if e.db == *Boate { // TODO: hack!
+            offsets = buoyancy_points;
+        }
+
         let model = to_matrix(e.tr);
         for 0 .. offsets.length {
             let o = offsets[it];
             check_buoyancy(e, model, o, dt);
             o.x *= -1;
-            check_buoyancy(e, model, o, dt);
+            if !equals(o, vec3_zero) check_buoyancy(e, model, o, dt);
         }
     }
 
@@ -220,12 +232,12 @@ void update(Entity* e, float32 dt) {
 
     if e.does_collide {
         let m = to_matrix(e.tr);
-        let A = xyz(mul(make_vec(e.capsule_a, 1), m));
-        let B = xyz(mul(make_vec(e.capsule_b, 1), m));
+        let A = xyz(mul(make_vec(e.capsule.a, 1), m));
+        let B = xyz(mul(make_vec(e.capsule.b, 1), m));
 
         for 0 .. list_length(cannon_balls) {
             let ball = *cannon_balls[it];
-            let inr = capsule_point_intersects(A, B, ball.pos, e.capsule_radius); // TODO: could just transform ball.pos to entitys local space, it would be one less matrix mul
+            let inr = capsule_point_intersects(A, B, ball.pos, e.capsule.radius); // TODO: could just transform ball.pos to entitys local space, it would be one less matrix mul
             if 0 < inr.depth {
                 e.highlight = true;
                 if e.hp != 0 {
@@ -236,7 +248,7 @@ void update(Entity* e, float32 dt) {
             }
         }
 
-        gizmo_capsule(A, B, xyz(m.row2), e.capsule_radius, e.highlight ? Red : Green);
+        gizmo_capsule(A, B, xyz(m.row2), e.capsule.radius, e.highlight ? Red : Green);
 
 
         mat3 rot_m = make_mat3(m);
@@ -253,6 +265,10 @@ void draw_vel(vec3 p, v) {
     gizmo_point(p+v, Yellow);
 }
 
+void player_control(Entity* en, Camera* cam) {
+    let wasd = Input.unit_wasd;
+
+}
 
 
 
@@ -276,6 +292,8 @@ void spawn_world() {
 
     // world.boat2 = spawn_entity(*Boat2, *white_texture);
     // world.boat2.tr.scale = vec3_one * 1.5;
+
+    entity_player = spawn_entity(entity_default());
 }
 
 void update_world() {

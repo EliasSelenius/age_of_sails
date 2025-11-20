@@ -1,24 +1,27 @@
 
 #include "../grax/shaders/camera.glsl"
+#include "../grax/shaders/app.glsl"
 
+uniform vec3 u_sky_color = vec3(0.1, 0.5, 0.9);
+uniform vec3 u_grond_color = vec3(0.5, 0.6, 0.7);
 
-IO FragData {
-    vec3 pos;
-} v2f;
+#define Data_Block FragData {\
+    vec3 pos;\
+}\
 
 
 
 #ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 layout (location = 0) in vec3 a_Pos;
+out Data_Block vertex_output;
 
 void main() {
-    v2f.pos = a_Pos;
+    vertex_output.pos = a_Pos;
 
     vec4 clip_pos = camera.projection * mat4(mat3(camera.view)) * vec4(a_Pos, 1);
     gl_Position = clip_pos.xyww;
 }
-
 #endif
 
 
@@ -26,36 +29,32 @@ void main() {
 
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "../grax/shaders/app.glsl"
-
+in Data_Block frag_input;
 out vec4 FragColor;
 
+float calc_mie_phase(vec3 sun, vec3 sky) {
+    float fCos = dot(sun, -sky);
+    // float g = -0.95;
+    float g = -0.995;
+    float g2 = g*g;
+    float MiePhase = 1.5 * ((1.0 - g2) / (2.0 + g2)) * (1.0 + fCos*fCos) / pow(1.0 + g2 - 2.0*g*fCos, 1.5);
+    return MiePhase;
+}
 
 void main() {
-
     vec3 sun_dir      = camera.sun_dir.xyz;
     vec3 sun_radiance = camera.sun_radiance.xyz;
 
-    vec3 sky_dir = normalize(v2f.pos);
+    vec3 sky_dir = normalize(frag_input.pos);
 
-    float fCos = dot(sun_dir, -sky_dir);
+    float mie = calc_mie_phase(sun_dir, sky_dir);
+    vec3 sky = u_sky_color + sun_radiance * mie;
+    vec3 ground = u_grond_color;
 
-    float g = -0.95;
-    float g2 = g*g;
-    float MiePhase = 1.5 * ((1.0 - g2) / (2.0 + g2)) * (1.0 + fCos*fCos) / pow(1.0 + g2 - 2.0*g*fCos, 1.5);
-
-    // vec3 sky_color = vec3(0.1, 0.1, 1);
-    vec3 sky_color = vec3(0.1, 0.5, 0.9);
-
-    if (sky_dir.y < 0) {
-        FragColor = vec4(0.5, 0.6, 0.7, 1.0); //  vec4(0.1, 0.4, 0.7, 1.0);
-    } else {
-        FragColor = vec4(sky_color + vec3(MiePhase), 1.0);
-    }
-
-    // FragColor = vec4(abs(sky_dir), 1.0);
+    float e = 0.1;
+    float t = smoothstep(-e, e, dot(sky_dir, vec3(0,1,0)));
+    FragColor = vec4(mix(ground, sky, t), 1);
 }
-
 #endif
 
 
