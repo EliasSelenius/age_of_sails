@@ -17,6 +17,8 @@
 *.ilk
 *.pdb
 *.raddbg
+# rad debug info
+*.rdi
 *.exp
 
 shader_debug_log_*.txt

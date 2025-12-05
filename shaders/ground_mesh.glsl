@@ -30,9 +30,9 @@ layout (binding = 3) uniform sampler2D texture_albedo_cliff;
 vec4 noise_test(vec2 coord) {
     float h = 0;
     vec2 grad = vec2(0.0);
-    for (int i = 1; i <= 4; i++) {
-        float f = 1000.0 / float(i);
-        float a = 500.0 / float(i);
+    for (int i = 1; i <= 8; i++) {
+        float f = 1300.0 / float(i);
+        float a = 350.0 / float(i);
 
         vec3 n = noised2(coord / f);
         h += a*n.z;

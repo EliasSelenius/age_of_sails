@@ -314,7 +314,7 @@ void update_world() {
                 vec3 vel = ball.vel;
                 vel.y *= -1;
                 vel = (vel*0.1 + random_unit_vec3()*5 + vec3_unit_y*10)*random01();
-                spawn_particle(ball.pos, vel);
+                spawn_particle(ball.pos, vel, ParticleFlags.gravity);
             }
 
             list_unordered_remove(cannon_balls, it);
@@ -325,17 +325,19 @@ void update_world() {
         ball.vel.y -= 9.8 * dt; // gravity
         ball.pos = ball.pos + ball.vel * dt;
 
-        spawn_particle(ball.pos, random_unit_vec3());
+        spawn_particle(ball.pos, random_unit_vec3(), ParticleFlags.none);
     }
 
     for 0 .. list_length(particles) {
         let p = *particles[it];
         p.pos = p.pos + p.vel*dt;
-        p.life_time += dt;
+        p.life_time -= dt;
 
-        p.vel = p.vel - vec3_unit_y*9.8*dt;
+        if p.flags & .gravity {
+            p.vel = p.vel - vec3_unit_y*9.8*dt;
+        }
 
-        if p.life_time > 2 {
+        if p.life_time <= 0 {
             list_unordered_remove(particles, it);
             it--;
         }

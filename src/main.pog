@@ -80,7 +80,6 @@ Mesh[..] all_meshes = list_create(sizeof Mesh);
 
 Shader water_shader;
 Shader ground_shader;
-Shader skybox_shader;
 
 Texture2D test_color_texture;
 Texture2D town_texture;
@@ -103,7 +102,7 @@ Capsule Capsule_Human = {
     a = vec3_zero,
     b = {0, 1.33, 0}, // 1.33 = 1.83 - 2*0.25
     radius = 0.25
-}
+};
 
 struct Capsule {
     vec3 a, b;
@@ -203,7 +202,6 @@ void loadassets() {
 
     water_shader = load_shader("shaders/water.glsl", true, false);
     ground_shader = load_shader("shaders/ground_mesh.glsl");
-    skybox_shader = load_shader("shaders/skybox.glsl");
 
 }
 
@@ -218,7 +216,6 @@ void on_event(AppEvent event, AppEventData data) {
         case .key_press: {
             if data.key == 'R' {
 
-                reload_shader(*skybox_shader, false, false);
                 reload_shader(*ground_shader, false, false);
                 reload_shader(*water_shader, true, false);
                 reload_shader(*renderer.shader_dirlight, false, false);
@@ -243,8 +240,6 @@ void main() {
 
     R.sun_radiance = { 10, 10, 10 };
     R.sun_ambient_factor = 0.05;
-
-    R.shader_skybox = skybox_shader; // TODO: hack!
 
     particle_batch = create_batch_of_points();
 
@@ -520,11 +515,12 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
             GizmoPoint gp = {};
             gp.pos = p.pos;
-            gp.size = 1;
-            gp.color = opacity(White, 0.3);
+            gp.size = p.size;
+            gp.color = opacity(p.color, clamp01(p.life_time));
             add_point(*particle_batch, gp);
         }
 
+        glDepthMask(false);
         // enable_additive_blending();
         glEnable(GL_BLEND);
         glBlendEquation(GL_FUNC_ADD);
@@ -593,15 +589,32 @@ float32 approx_water_height(vec2 coord) {
 }
 
 
-struct Particle {
-    vec3 pos, vel;
-    float32 life_time;
+enum ParticleFlags {
+    none = 0;
+    gravity = 1;
 }
 
-void spawn_particle(vec3 pos, vel) {
-    Particle p = { pos, vel };
+struct Particle {
+    vec3 pos, vel;
+    float32 size;
+    Color color;
+    float32 life_time;
+    ParticleFlags flags;
+}
+
+void spawn_particle(Particle p) {
     list_add(*particles, *p);
 }
+
+void spawn_particle(vec3 pos, vel, ParticleFlags flags) {
+    Particle p = { pos, vel };
+    p.size = 1;
+    p.color = White;
+    p.life_time = 2;
+    p.flags = flags;
+    list_add(*particles, *p);
+}
+
 
 
 
