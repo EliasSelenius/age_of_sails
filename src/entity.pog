@@ -6,7 +6,7 @@ uint32 entities_count = 0;
 
 Entity* entity_player;
 
-CannonBall* cannon_balls = list_create(sizeof CannonBall);
+CannonBall[..] cannon_balls = list_create(sizeof CannonBall);
 
 vec3[] buoyancy_points = {
     {  2.1, -1,  13.0 },
