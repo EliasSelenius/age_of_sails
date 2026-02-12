@@ -28,6 +28,8 @@ void spawn_cannonball(vec3 pos, vel, uint32 damage) {
 struct Entity {
     Texture2D* texture;
     DrawBuffers* db;
+    DrawCommand* draw_command;
+
     Material_PBR pbr;
 
     with Transform tr;
@@ -43,6 +45,7 @@ struct Entity {
     bool fire_cannons;
     bool sails_unfurled;
     bool has_buoyancy;
+    bool show_health_bar;
 
     bool does_collide;
 
@@ -92,6 +95,16 @@ Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
     en.capsule = Boate_Capsule;
     en.texture = tex;
     en.db = db;
+    en.show_health_bar = true;
+
+    for 0 .. list_length(draw_commands) {
+        let dc = *draw_commands[it];
+        if dc.db == db {
+            en.draw_command = dc;
+            break;
+        }
+    }
+
     return spawn_entity(en);
 }
 
@@ -146,15 +159,15 @@ void fire_cannon(Entity* en, uint32 cannon_index) {
     40 = velocity
 */
 
-void update(Entity* e, float32 dt) {
+void update(Entity* en, float32 dt) {
 
-    { // draw health bar
-        let arcndc = world2arcndc(cam, e.tr.position);
+    if en.show_health_bar { // draw health bar
+        let arcndc = world2arcndc(cam, en.tr.position);
         if arcndc.z <= 1 {
             let pos = xy(arcndc);
-            // draw_text(arcndc, 0.05, concat("HP:", to_string(e.hp)), Red);
+            // draw_text(arcndc, 0.05, concat("HP:", to_string(en.hp)), Red);
 
-            let prct = e.hp as float32 / 60.0;
+            let prct = en.hp as float32 / 60.0;
 
             vec2 size = {0.2, 0.01};
             draw_rect(pos, size, Gray);
@@ -162,34 +175,34 @@ void update(Entity* e, float32 dt) {
         }
     }
 
-    if e.cannon_reload > 0 {
-        e.cannon_reload -= dt;
-    } else if e.fire_cannons {
-        fire_cannon(e, e.next_cannon++);
-        e.cannon_reload = random_range(0.0, 0.1);
-        if e.next_cannon >= player_stat.cannon_count {
-            e.fire_cannons = false;
-            e.cannon_reload = player_stat.cannon_reload_time;
-            e.next_cannon = 0;
+    if en.cannon_reload > 0 {
+        en.cannon_reload -= dt;
+    } else if en.fire_cannons {
+        fire_cannon(en, en.next_cannon++);
+        en.cannon_reload = random_range(0.0, 0.1);
+        if en.next_cannon >= player_stat.cannon_count {
+            en.fire_cannons = false;
+            en.cannon_reload = player_stat.cannon_reload_time;
+            en.next_cannon = 0;
         }
     }
 
-    if e.has_buoyancy {
-        e.rb.velocity.y -= 9.8 * dt; // gravity
+    if en.has_buoyancy {
+        en.rb.velocity.y -= 9.8 * dt; // gravity
     }
 
-    if e.sails_unfurled {
-        add_force(*e.rb, forward(e.tr) * player_stat.boat_speed * dt);
+    if en.sails_unfurled {
+        add_force(*en.rb, forward(en.tr) * player_stat.boat_speed * dt);
     }
 
 
     float32 damp_factor = 0.5;
-    e.rb.velocity = e.rb.velocity - e.rb.velocity * damp_factor * dt;
+    en.rb.velocity = en.rb.velocity - en.rb.velocity * damp_factor * dt;
 
     float32 angular_damp = 5;
-    e.rb.angular_velocity = e.rb.angular_velocity - e.rb.angular_velocity * angular_damp * dt;
+    en.rb.angular_velocity = en.rb.angular_velocity - en.rb.angular_velocity * angular_damp * dt;
 
-    if e.has_buoyancy { // buoyancy
+    if en.has_buoyancy { // buoyancy
         void check_buoyancy(Entity* en, mat4 model, vec3 point, float32 dt) {
             let offset = xyz(mul(make_vec(point, 1.0), model));
             let water_height = approx_water_height(xz(offset));
@@ -210,54 +223,54 @@ void update(Entity* e, float32 dt) {
         // we can do a single mat3 mul and just add translation afterwards
 
         vec3[] offsets = { vec3_zero };
-        if e.db == *Boate { // TODO: hack!
+        if en.db == *Boate { // TODO: hack!
             offsets = buoyancy_points;
         }
 
-        let model = to_matrix(e.tr);
+        let model = to_matrix(en.tr);
         for 0 .. offsets.length {
             let o = offsets[it];
-            check_buoyancy(e, model, o, dt);
+            check_buoyancy(en, model, o, dt);
             o.x *= -1;
-            if !equals(o, vec3_zero) check_buoyancy(e, model, o, dt);
+            if !equals(o, vec3_zero) check_buoyancy(en, model, o, dt);
         }
     }
 
-    update_rigidbody_transform(*e.tr, *e.rb, dt);
+    update_rigidbody_transform(*en.tr, *en.rb, dt);
 
-    if e.hp == 0 {
-        e.buoyancy_force_coff = clamp(e.buoyancy_force_coff-(dt*0.01), 0, 1);
+    if en.hp == 0 {
+        en.buoyancy_force_coff = clamp(en.buoyancy_force_coff-(dt*0.01), 0, 1);
     }
 
 
-    if e.does_collide {
-        let m = to_matrix(e.tr);
-        let A = xyz(mul(make_vec(e.capsule.a, 1), m));
-        let B = xyz(mul(make_vec(e.capsule.b, 1), m));
+    if en.does_collide {
+        let m = to_matrix(en.tr);
+        let A = xyz(mul(make_vec(en.capsule.a, 1), m));
+        let B = xyz(mul(make_vec(en.capsule.b, 1), m));
 
         for 0 .. list_length(cannon_balls) {
             let ball = *cannon_balls[it];
-            let inr = capsule_point_intersects(A, B, ball.pos, e.capsule.radius); // TODO: could just transform ball.pos to entitys local space, it would be one less matrix mul
+            let inr = capsule_point_intersects(A, B, ball.pos, en.capsule.radius); // TODO: could just transform ball.pos to entitys local space, it would be one less matrix mul
             if 0 < inr.depth {
-                e.highlight = true;
-                if e.hp != 0 {
-                    e.hp--;
+                en.highlight = true;
+                if en.hp != 0 {
+                    en.hp--;
                 }
                 list_unordered_remove(cannon_balls, it);
                 it--;
             }
         }
 
-        gizmo_capsule(A, B, xyz(m.row2), e.capsule.radius, e.highlight ? Red : Green);
+        gizmo_capsule(A, B, xyz(m.row2), en.capsule.radius, en.highlight ? Red : Green);
 
 
         mat3 rot_m = make_mat3(m);
         let p = mul(make_vec(3, 1, 15), rot_m);
-        vec3 v = cross(p, e.rb.angular_velocity);// + e.rb.velocity;
-        draw_vel(p + e.tr.position, v);
+        vec3 v = cross(p, en.rb.angular_velocity);// + en.rb.velocity;
+        draw_vel(p + en.tr.position, v);
     }
 
-    e.highlight = false;
+    en.highlight = false;
 }
 
 void draw_vel(vec3 p, v) {

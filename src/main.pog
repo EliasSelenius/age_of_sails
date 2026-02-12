@@ -96,6 +96,8 @@ DrawBuffers firstTownscaper;
 DrawBuffers db_palm;
 DrawBuffers db_quad;
 
+DrawCommand[..] draw_commands = list_create(sizeof DrawCommand);
+
 RenderLayer static_ui;
 
 Capsule Boate_Capsule;
@@ -263,6 +265,9 @@ void main() {
 
     glPatchParameteri(GL_PATCH_VERTICES, 4);
 
+    let dc = make_draw_command(*db_palm, drawmode_gpass);
+    list_add(*draw_commands, *dc);
+
     while grax_loop() {
         float32 dt = deltatime();
 
@@ -370,9 +375,11 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
     for 0 .. entities_count {
         let en = *entities[it];
-        if sqdist(en.tr.position, cam.transform.position) > region_size*2*region_size*2 continue;
+        // if sqdist(en.tr.position, cam.transform.position) > region_size*2*region_size*2 continue;
 
-        if en.db {
+        if en.draw_command {
+            InstanceData* ins = batch(en.draw_command, to_matrix(en.tr), vec2_zero, vec2_one, en.pbr, en.texture);
+        } else if en.db {
             draw_geometry(R, @en.db, en.pbr, en.texture, to_matrix(en.tr));
         } else {
             gizmo_point(en.tr.position, Red, 0.5);
@@ -455,6 +462,12 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             float32 force_scale = 0.1;
             add_force(*world.player_boat.rb, (mouse_point - world_point)*force_scale, world_point - world.player_boat.tr.position);
         }
+    }
+
+    for 0 .. list_length(draw_commands) {
+        let dc = *draw_commands[it];
+        issue_draw_command(dc);
+        list_clear(dc.instance_data);
     }
 
     render_terrain();

@@ -210,18 +210,19 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
 
     vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
 
-    // for 0 .. 10 {
-    //     let en = spawn_entity(*db_palm, *white_texture);
-    //     en.has_buoyancy = false;
-    //     en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
-    //     en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
-    //     en.tr.scale = make_vec3(1);
-    //     en.does_collide = false;
+    for 0 .. 10 {
+        let en = spawn_entity(*db_palm, *white_texture);
+        en.has_buoyancy = false;
+        en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
+        en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);
+        en.tr.scale = make_vec3(1);
+        en.does_collide = false;
+        en.show_health_bar = false;
 
-    //     en.pbr.albedo = { random01(), random01(), random01() };
-    //     en.pbr.metallic = random01();
-    //     en.pbr.roughness = random01();
-    // }
+        en.pbr.albedo = { random01(), random01(), random01() };
+        en.pbr.metallic = random01();
+        en.pbr.roughness = random01();
+    }
 
     return 1;
 }
