@@ -195,14 +195,14 @@ void main() {
     vec4 color = water_color + shore_line_color + foam_color;
 
     Geometry g;
-    g.pos = input.view_pos;
-    g.normal = input.view_normal;
+    g.view_pos = input.view_pos;
+    g.view_normal = input.view_normal;
     g.albedo = color.rgb;
     g.roughness = 0.4;
     g.metallic = 0.0;
 
     if (!gl_FrontFacing) {
-        g.normal = -g.normal;
+        g.view_normal = -g.view_normal;
     }
 
     vec3 sun_dir         = camera.sun_dir.xyz;
