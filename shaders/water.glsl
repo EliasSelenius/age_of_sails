@@ -3,8 +3,8 @@
 #include "../grax/shaders/camera.glsl"
 #include "../grax/shaders/lights.glsl"
 #include "../grax/shaders/noise.glsl"
+#include "../grax/shaders/common.glsl"
 #include "shaders/ground.glsl"
-
 
 #define Pi 3.14159265359
 #define Tau (2.0 * Pi)
@@ -17,6 +17,8 @@ uniform vec2 water_pos;
 uniform float depth_factor = 0.05;
 
 #define Def_FragData FragData {\
+    vec3 world_pos;\
+    vec3 world_normal;\
     vec3 view_pos;\
     vec3 view_normal;\
     vec2 uv;\
@@ -123,16 +125,24 @@ void main() {
 
     vec2 coord = water_pos + vert_pos.xz;
 
-    const int iterations = 12;
+    vec2 desired_dir = vec2(0, 1);
+
+    const int iterations = 32;
     for (int i = 0; i < iterations; i++) {
         float a = i*1232.399963;
         vec2 dir = vec2(sin(a), cos(a));
 
+
         // float st = 0.4 / (i+1);
-        float st = 0.06; // 0.1;
+        float st = 0.1; // 0.1;
         // float st = mix(0.1, 0.05, float(i) / (iterations-1));
 
-        float wave_len = (i+1)*10;
+        float directionality = (dot(dir, desired_dir) + 1.0) / 2.0;
+
+        st *= directionality;
+
+        float wave_len = (i+1) * 4.0; // *10;
+        // float wave_len = pow(2, i) / 100000.0;
 
         gerstner_wave(0, coord, dir, st * wave_steepness, wave_len, water_offset, tangent, binormal);
     }
@@ -155,6 +165,8 @@ void main() {
     wpos.xz += water_pos;
     wpos.xyz += water_offset;
 
+    output_vertex.world_pos = wpos.xyz;
+    output_vertex.world_normal = normal;
     output_vertex.view_pos = (camera.view * wpos).xyz;
     output_vertex.view_normal = mat3(camera.view) * normal;
     output_vertex.uv = uv;
@@ -212,6 +224,11 @@ void main() {
     vec3 ambient = sun_radiance * g.albedo * ambient_factor;
     vec3 light = ambient + calc_dir_light(sun_dir, sun_radiance, g);
 
+    float sss_factor = 1.0 - exp(-max(0.0, input.world_pos.y));
+
+    light += (1.5 * g.albedo) * sss_factor;
+    // light += (2.0 * g.albedo) * clamp(input.world_pos.y, 0, 1);
+
     FragColor = vec4(light, color.a);
 
 
@@ -230,9 +247,21 @@ void main() {
 
     } else { // water
         vec4 fog_color = vec4(0.1, 0.4, 0.7, 1.0);
-        float b = 0.005;
-        float t = 1 - exp(-dist_to_water * b);
+        float max_dist = 100;
+        float t = 1 - exp(-dist_to_water / max_dist);
         FragColor = mix(FragColor, fog_color, t);
+
+        vec3 R = transpose(mat3(camera.view)) * normalize(-input.view_pos);
+        vec3 N = input.world_normal;
+
+        vec3 sky_dir = refract(-R, -N, 1.333);
+
+        vec3 sky_color = vec3(0.1, 0.5, 0.9);
+        vec3 sky_light = skybox_light(sun_dir, sun_radiance, sky_dir, sky_color);
+
+        FragColor.rgb += sky_light;
+
+        // FragColor.a = 0.9;
     }
 
 }

@@ -203,25 +203,20 @@ void loadassets() {
 
 
 
-    water_shader = load_shader("shaders/water.glsl", true, false);
+    water_shader = load_shader("shaders/water.glsl");
     ground_shader = load_shader("shaders/ground_mesh.glsl");
 
 }
 
 void on_event(AppEvent event) {
-
-    void reload_shader(Shader* shader, bool tess, geom) {
-        delete_shader(shader);
-        @shader = load_shader(shader.name.chars, tess, geom);
-    }
-
     switch event.kind {
         case .key_press: {
             if event.key == 'R' {
 
-                reload_shader(*ground_shader, false, false);
-                reload_shader(*water_shader, true, false);
-                reload_shader(*renderer.shader_dirlight, false, false);
+                shader_reload(*ground_shader);
+                shader_reload(*water_shader);
+                shader_reload(*renderer.shader_dirlight);
+                shader_reload(*renderer.shader_skybox);
 
                 print("SHADER RELOAD\n");
             }
@@ -505,11 +500,14 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             }
 
             if terrain_wireframe  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
             glBindVertexArray(db_quad.vao);
             glDisable(GL_CULL_FACE);
-            glDrawArrays(GL_PATCHES, 0, 4);
+            // glDrawArrays(GL_PATCHES, 0, 4);
+            glDrawElements(GL_PATCHES, db_quad.elements_count, GL_UNSIGNED_INT, null);
             glEnable(GL_CULL_FACE);
             glBindVertexArray(0);
+
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 

@@ -114,12 +114,16 @@ TerrainRegion create_region() {
 
 void init_terrain() {
 
-    DrawBuffers create_plane(uint32 size) {
+    DrawBuffers create_plane(uint32 size, Mesh_Primitive prim) {
         float32 uv_scale = 1;
         float32 scale = region_size / size as float32;
-        let plane = gen_plane(size, uv_scale, scale);
-        let db = create_draw_buffers(plane);
-        mesh_free(plane);
+
+        let mesh_plane = mesh_create();
+        mesh_plane.primitive = prim;
+        add_plane(*mesh_plane, size, uv_scale, make_mat4(scale));
+
+        let db = create_draw_buffers(mesh_plane);
+        mesh_free(mesh_plane);
         return db;
     }
 
@@ -131,11 +135,11 @@ void init_terrain() {
 
         print("[INFO]: generating plane: lod=", lod, " size=", size, "\n");
 
-        chunk_meshes[it] = create_plane(size);
+        chunk_meshes[it] = create_plane(size, Mesh_Primitive.Triangles);
     }
 
-    full_res_plane_mesh = create_plane(region_size);
-    db_quad = create_plane(1);
+    full_res_plane_mesh = create_plane(region_size, Mesh_Primitive.Triangles);
+    db_quad = create_plane(8, Mesh_Primitive.Quad_Patches);
 
     Color[] colors = {White, Gray, Black, Red, Green, Blue, Yellow, Cyan, Purple};
 
@@ -210,7 +214,7 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
 
     vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
 
-    for 0 .. 10 {
+    if false for 0 .. 10 {
         let en = spawn_entity(*db_palm, *white_texture);
         en.has_buoyancy = false;
         en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
