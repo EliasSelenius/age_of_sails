@@ -5,15 +5,14 @@
 #include "../grax/shaders/noise.glsl"
 #include "../grax/shaders/common.glsl"
 #include "shaders/ground.glsl"
+#include "shaders/wave.glsl"
 
-#define Pi 3.14159265359
-#define Tau (2.0 * Pi)
 
 layout (binding = 0) uniform sampler2D g_buffer_pos;
 layout (binding = 1) uniform sampler2D water_tex;
 layout (binding = 2) uniform sampler2D height_map;
 
-uniform vec2 water_pos;
+uniform vec2 u_water_pos;
 uniform float depth_factor = 0.05;
 
 #define Def_FragData FragData {\
@@ -64,12 +63,12 @@ void main() {
 
 
     float d = 128.0 / 2.0;
-    gl_TessLevelOuter[0] = get_tess_level(water_pos + vec2( 0, -d)); // -z
-    gl_TessLevelOuter[1] = get_tess_level(water_pos + vec2(-d,  0)); // -x
-    gl_TessLevelOuter[2] = get_tess_level(water_pos + vec2( 0,  d)); // +z
-    gl_TessLevelOuter[3] = get_tess_level(water_pos + vec2( d,  0)); // +x
+    gl_TessLevelOuter[0] = get_tess_level(u_water_pos + vec2( 0, -d)); // -z
+    gl_TessLevelOuter[1] = get_tess_level(u_water_pos + vec2(-d,  0)); // -x
+    gl_TessLevelOuter[2] = get_tess_level(u_water_pos + vec2( 0,  d)); // +z
+    gl_TessLevelOuter[3] = get_tess_level(u_water_pos + vec2( d,  0)); // +x
 
-    float level = get_tess_level(water_pos);
+    float level = get_tess_level(u_water_pos);
     gl_TessLevelInner[0] = level;
     gl_TessLevelInner[1] = level;
 }
@@ -77,23 +76,9 @@ void main() {
 
 
 #ifdef TessEval /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 layout (quads, equal_spacing, ccw) in;
 in EvalData_Block input[];
 out Def_FragData output_vertex;
-
-// wave direction must be normalized
-void gerstner_wave(float phase_offset, vec2 coord, vec2 dir, float steepness, float wave_length, inout vec3 pos, inout vec3 tangent, inout vec3 binormal) {
-    float k = Tau / wave_length;
-    float f = k * (phase_offset + dot(dir, coord) - sqrt(9.8 / k) * Time);
-
-    float s = sin(f);
-    float c = cos(f);
-
-    pos      += vec3( c, s,  c) * vec3(dir.x, 1.0, dir.y)                   * steepness / k;
-    tangent  += vec3(-s, c, -s) * vec3(dir.x * dir.x, dir.x, dir.x * dir.y) * steepness;
-    binormal += vec3(-s, c, -s) * vec3(dir.x * dir.y, dir.y, dir.y * dir.y) * steepness;
-}
 
 void main() {
 
@@ -104,65 +89,25 @@ void main() {
 
     // vec2 uv = gl_TessCoord.xy;
     vec4 vert_pos = mix(mix(p0, p1, gl_TessCoord.x), mix(p2, p3, gl_TessCoord.x), gl_TessCoord.y);
+    vec2 coord = u_water_pos + vert_pos.xz;
 
     vec2 uv = (vert_pos.xz + vec2(64.0)) / 128.0; // TODO: hardcoded chunk dimensions
     // vec2 uv = gl_TessCoord.xy;
 
-    vec4 terrain = get_terrain(height_map, uv);
-    float depth = -terrain.w;
+
+    vec4 terrain = noise_test(coord);
+    // vec4 terrain = get_terrain(height_map, uv);
+    float depth = max(-terrain.w, 0.0);
     vec2 shore_dir = -normalize(terrain.xz);
 
-    float scaling_factor = smoothstep(0.0, 60.0, depth);
-    // float wave_steepness = scaling_factor;
-    float wave_steepness = 1.0;
-    float shore_wave_steepness = 1 - wave_steepness;
 
-    // shore_wave_steepness *= step(dot(terrain.xyz, vec3(0, 1, 0)), 0.99);
 
     vec3 water_offset = vec3(0, 0, 0);
-    vec3 tangent  = vec3(1, 0, 0);
-    vec3 binormal = vec3(0, 0, 1);
-
-    vec2 coord = water_pos + vert_pos.xz;
-
-    vec2 desired_dir = vec2(0, 1);
-
-    const int iterations = 32;
-    for (int i = 0; i < iterations; i++) {
-        float a = i*1232.399963;
-        vec2 dir = vec2(sin(a), cos(a));
-
-
-        // float st = 0.4 / (i+1);
-        float st = 0.1; // 0.1;
-        // float st = mix(0.1, 0.05, float(i) / (iterations-1));
-
-        float directionality = (dot(dir, desired_dir) + 1.0) / 2.0;
-
-        st *= directionality;
-
-        float wave_len = (i+1) * 4.0; // *10;
-        // float wave_len = pow(2, i) / 100000.0;
-
-        gerstner_wave(0, coord, dir, st * wave_steepness, wave_len, water_offset, tangent, binormal);
-    }
-
-    vec2 wave_pos = vec2(40, 100);
-    vec2 dir = wave_pos - coord;
-    float phase = length(dir);
-    dir = phase == 0 ? vec2(0) : normalize(dir);
-    gerstner_wave(phase, vec2(0), dir, 0.3*exp(-phase*0.01), 18, water_offset, tangent, binormal);
-
-    // gerstner_wave(0, coord, normalize(vec2(1, 1.3)), 0.25 * wave_steepness, 18, water_offset, tangent, binormal);
-    // gerstner_wave(0, coord, normalize(vec2(1, 0.6)), 0.04 * wave_steepness, 31, water_offset, tangent, binormal);
-    // gerstner_wave(0, coord, normalize(vec2(0.5, 1)), 0.10 * wave_steepness, 7,  water_offset, tangent, binormal);
-    // gerstner_wave(-depth, vec2(0), shore_dir,        0.25 * shore_wave_steepness, 10, water_offset, tangent, binormal);
-
-
-    vec3 normal = normalize(cross(binormal, tangent));
+    vec3 normal = vec3(0, 1, 0);
+    ocean(coord, depth, Time, water_offset, normal);
 
     vec4 wpos = vert_pos;
-    wpos.xz += water_pos;
+    wpos.xz += u_water_pos;
     wpos.xyz += water_offset;
 
     output_vertex.world_pos = wpos.xyz;
@@ -193,29 +138,37 @@ void main() {
     vec4 deep_water = vec4(0.15, 0.4, 1.0, 1.0);
     vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.3);
     float alpha = clamp(1 - exp(-depth * depth_factor), 0, 1);
-    vec4 water_color = mix(shallow_water, deep_water, alpha); // * texture(water_tex, input.uv);
+    // vec4 water_color = mix(shallow_water, deep_water, alpha); // * texture(water_tex, input.uv);
+    vec4 water_color = deep_water;
+    water_color.a = 0.3;
+
 
     // shore line foam
     vec4 shore_line_color = vec4(step(alpha, 0.01)) * exp(-dist_to_water * 0.005);
 
     // foam
-    vec2 p = water_pos + input.uv*128;
+    vec2 p = u_water_pos + input.uv*128;
     float d = voronoi(p*0.2);
     d = smoothstep(0.5, 2.0, d);
     vec4 foam_color = vec4(vec3(d), 0.0);
 
-    vec4 color = water_color + shore_line_color + foam_color;
+
+    vec4 color = water_color;// + shore_line_color + foam_color;
 
     Geometry g;
     g.view_pos = input.view_pos;
-    g.view_normal = input.view_normal;
+    g.view_normal = -normalize(input.view_normal); // TODO: why did normals get inverted here? strange...
     g.albedo = color.rgb;
     g.roughness = 0.4;
     g.metallic = 0.0;
 
+    vec3 world_normal = normalize(input.world_normal);
+
     if (!gl_FrontFacing) {
         g.view_normal = -g.view_normal;
+        world_normal = -world_normal;
     }
+
 
     vec3 sun_dir         = camera.sun_dir.xyz;
     vec3 sun_radiance    = camera.sun_radiance.xyz;
@@ -225,9 +178,8 @@ void main() {
     vec3 light = ambient + calc_dir_light(sun_dir, sun_radiance, g);
 
     float sss_factor = 1.0 - exp(-max(0.0, input.world_pos.y));
-
-    light += (1.5 * g.albedo) * sss_factor;
-    // light += (2.0 * g.albedo) * clamp(input.world_pos.y, 0, 1);
+    float upness = dot(world_normal, vec3(0,1,0));
+    // light *= mix(1.0, 5.0, 1.0 - upness);
 
     FragColor = vec4(light, color.a);
 
@@ -243,7 +195,7 @@ void main() {
 
         float b = 0.001;
         float t = 1 - exp(-dist_to_water * b);
-        FragColor = mix(FragColor, vec4(fog_color, 1.0), t);
+        // FragColor = mix(FragColor, vec4(fog_color, 1.0), t);
 
     } else { // water
         vec4 fog_color = vec4(0.1, 0.4, 0.7, 1.0);
@@ -252,7 +204,7 @@ void main() {
         FragColor = mix(FragColor, fog_color, t);
 
         vec3 R = transpose(mat3(camera.view)) * normalize(-input.view_pos);
-        vec3 N = input.world_normal;
+        vec3 N = world_normal;
 
         vec3 sky_dir = refract(-R, -N, 1.333);
 
@@ -260,6 +212,7 @@ void main() {
         vec3 sky_light = skybox_light(sun_dir, sun_radiance, sky_dir, sky_color);
 
         FragColor.rgb += sky_light;
+        // FragColor.rgb = vec3(1, 0, 0);
 
         // FragColor.a = 0.9;
     }

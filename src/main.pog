@@ -215,8 +215,8 @@ void on_event(AppEvent event) {
 
                 shader_reload(*ground_shader);
                 shader_reload(*water_shader);
-                shader_reload(*renderer.shader_dirlight);
-                shader_reload(*renderer.shader_skybox);
+                shader_reload(Shaders.dirlight);
+                shader_reload(Shaders.skybox);
 
                 print("SHADER RELOAD\n");
             }
@@ -491,7 +491,7 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
             bind_texture2D(chunk.height_map_tex, 2);
             vec2 chunk_pos = make_vec(chunk.coord * (region_size));
-            set_uniform("water_pos", chunk_pos);
+            set_uniform("u_water_pos", chunk_pos);
             DrawBuffers water_db;
             if chunk.lod < 4 {
                 water_db = full_res_plane_mesh;
@@ -566,16 +566,16 @@ vec3 water_offset(vec2 coord) {
 
     float32 wave_steepness = 1.0; // TODO: ...
 
-    int32 iterations = 12;
+    int32 iterations = 32;
     for (int32 i = 0, i < iterations, i++) {
         float32 a = i*1232.399963;
         vec2 dir = make_vec(sinf(a), cosf(a));
 
         // float32 st = 0.4 / (i+1);
-        float32 st = 0.06;
+        float32 st = 0.1;
         // float32 st = mix(0.25, 0.01, float32(i) / (iterations-1));
 
-        float32 wave_len = (i+1)*10;
+        float32 wave_len = (i+1)*4;
 
         gerstner_wave(coord, dir, st * wave_steepness, wave_len, *wpos, null, null);
     }
