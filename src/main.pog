@@ -217,6 +217,7 @@ void on_event(AppEvent event) {
                 shader_reload(*water_shader);
                 shader_reload(Shaders.dirlight);
                 shader_reload(Shaders.skybox);
+                shader_reload(Shaders.hdr2ldr);
 
                 print("SHADER RELOAD\n");
             }
