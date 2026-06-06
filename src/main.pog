@@ -79,8 +79,22 @@ Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 
 Mesh[..] all_meshes = list_create(sizeof Mesh);
 
-Shader water_shader;
-Shader ground_shader;
+Mesh* alloc_load_mesh(char* name) {
+    Mesh* mesh = mesh_alloc();
+
+    OBJ_Data obj = load_obj(name);
+    obj_to_mesh(obj, mesh);
+    free_obj(obj);
+    gen_normals(mesh);
+    calc_bounds(mesh);
+
+    return mesh;
+}
+
+Mesh* mesh_boat;
+
+Shader* shader_water  = alloc_shader("shaders/water.glsl");
+Shader* shader_ground = alloc_shader("shaders/ground_mesh.glsl");
 
 Texture2D test_color_texture;
 Texture2D town_texture;
@@ -147,6 +161,8 @@ Batch_Of_Points particle_batch;
 
 void loadassets() {
 
+    mesh_boat = alloc_load_mesh("../shared_assets/Boate_Smooth.obj");
+
     Mesh load_mesh(char* name) {
         OBJ_Data obj = load_obj(name);
         Mesh mesh = obj_to_mesh(obj);
@@ -200,12 +216,6 @@ void loadassets() {
     texture_sand = load_texture2D("assets/Bright_Desert_Sand_sjzkfega_1K_BaseColor.bmp");
     texture_grass = load_texture2D("assets/Grass_Cut_pjvqk0_1K_BaseColor.bmp");
     texture_cliff = load_texture2D("assets/Layered_Rock_Cliff_tlonbisya_1K_BaseColor.bmp");
-
-
-
-    water_shader = load_shader("shaders/water.glsl");
-    ground_shader = load_shader("shaders/ground_mesh.glsl");
-
 }
 
 void on_event(AppEvent event) {
@@ -213,8 +223,8 @@ void on_event(AppEvent event) {
         case .key_press: {
             if event.key == 'R' {
 
-                shader_reload(*ground_shader);
-                shader_reload(*water_shader);
+                shader_reload(shader_ground);
+                shader_reload(shader_water);
                 shader_reload(Shaders.dirlight);
                 shader_reload(Shaders.skybox);
                 shader_reload(Shaders.hdr2ldr);
@@ -369,6 +379,26 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
     begin_geometry_pass(R, cam);
 
+    {
+        static Material_PBR material_ship = {
+            albedo = {1, 0, 0},
+            metallic = 0.1,
+            roughness = 0.1
+        };
+
+        InstanceData data = {};
+        data.model = mat4_identity();
+        data.uv_offset_scale = make_vec(vec2_zero, vec2_one);
+        data.albedo_color = make_vec(material_ship.albedo, 1.0);
+        data.metallic_roughness = make_vec(material_ship.metallic, material_ship.roughness);
+        data.albedo_texture = ensure_texture_handle(*white_texture);
+
+        update_ssbo("Instances", *data, sizeof InstanceData);
+
+        mesh_draw(mesh_boat);
+    }
+
+
     for 0 .. entities_count {
         let en = *entities[it];
         // if sqdist(en.tr.position, cam.transform.position) > region_size*2*region_size*2 continue;
@@ -474,7 +504,7 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     begin_light_pass(R);
 
     if key_toggle('J') { // water
-        use(*water_shader);
+        use(shader_water);
 
         static float32 depth_factor = 0.2;
         // depth_factor += mouse_scroll / 100.0;
@@ -500,16 +530,13 @@ void draw_world(DeferredRenderer* R, Camera cam) {
                 water_db = chunk_meshes[lod_index[chunk.lod]];
             }
 
-            if terrain_wireframe  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+            Poly poly = terrain_wireframe ? .Line : .Fill;
+            set_face_render_mode(poly, poly);
 
             glBindVertexArray(db_quad.vao);
-            glDisable(GL_CULL_FACE);
-            // glDrawArrays(GL_PATCHES, 0, 4);
             glDrawElements(GL_PATCHES, db_quad.elements_count, GL_UNSIGNED_INT, null);
-            glEnable(GL_CULL_FACE);
             glBindVertexArray(0);
-
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
         if false {
@@ -534,11 +561,10 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         }
 
         glDepthMask(false);
-        // enable_additive_blending();
         glEnable(GL_BLEND);
         glBlendEquation(GL_FUNC_ADD);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        use(*gizmo_points_shader);
+        use(Shaders.gizmo_points);
         dispatch(*particle_batch);
     }
 

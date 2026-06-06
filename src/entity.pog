@@ -30,6 +30,8 @@ struct Entity {
     DrawBuffers* db;
     DrawCommand* draw_command;
 
+    Mesh* mesh;
+
     Material_PBR pbr;
 
     with Transform tr;

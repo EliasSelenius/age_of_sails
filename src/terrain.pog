@@ -8,7 +8,7 @@ const chunk_lod_count = 8;
 DrawBuffers[chunk_lod_count] chunk_meshes;
 DrawBuffers full_res_plane_mesh;
 
-const render_distance = 10;
+const render_distance = 20;
 
 const region_size = 128; // 1 << chunk_lod_count;
 const region_count = render_distance*2 + 1;
@@ -20,7 +20,7 @@ TerrainRegion[regions_array_size] regions;
 const height_map_res_downscale = 4;
 const height_map_res = region_size / height_map_res_downscale + 2; // +2 here is to make chunk aware of the heights of the edges of neighboring chunks to remove ugly seam
 
-uint32[] lod_index = { 0, 0, 1, 2, 3, 4, 5, 6, 7 };
+uint32[] lod_index = { 0, 0, 1, 2,2, 3,3,3,3,  4,4,4,4,4,4,4,4, 5, 6, 7 };
 
 struct TerrainRegion {
     float32* height_map;
@@ -250,7 +250,7 @@ void render_terrain() {
             times += ensure_chunk(camera_coord + make_ivec( ring, i+1), camera_coord);
             times += ensure_chunk(camera_coord + make_ivec(-ring, i), camera_coord);
 
-            if times >= 1 goto done;
+            // if times >= 1 goto done;
         }
     } done:
 
@@ -260,7 +260,7 @@ void render_terrain() {
     }
 
 
-    use(*ground_shader);
+    use(shader_ground);
     // bind_texture2D(chunk.height_map_tex, 0);
     bind_texture2D(texture_sand.gl_handle, 1);
     bind_texture2D(texture_grass.gl_handle, 2);
@@ -300,14 +300,14 @@ void render_terrain() {
         set_uniform("u_chunk_size", size as int32);
 
 
+        set_face_render_mode(Poly.Fill, Poly.Cull);
         draw_elements(chunk_meshes[lod_index[chunk.lod]]);
 
         if terrain_wireframe {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             let c = color_to_vec4(chunk.color);
             set_uniform("u_color_tint", c);
+            set_face_render_mode(Poly.Line, Poly.Line);
             draw_elements(chunk_meshes[lod_index[chunk.lod]]);
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
     }
 }
