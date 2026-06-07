@@ -215,7 +215,7 @@ uint32 ensure_chunk(ivec2 coord, camera_coord) {
     vec3 chunk_center = make_vec(coord.x, 0, coord.y) * region_size;
 
     if false for 0 .. 10 {
-        let en = spawn_entity(*db_palm, *white_texture);
+        let en = spawn_entity(mesh_palm, *white_texture);
         en.has_buoyancy = false;
         en.tr.position = chunk_center + { random(), 0, random() } * region_size/2;
         en.tr.position.y = terrian_height(en.tr.position.x, en.tr.position.z);

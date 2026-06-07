@@ -92,6 +92,7 @@ Mesh* alloc_load_mesh(char* name) {
 }
 
 Mesh* mesh_boat;
+Mesh* mesh_palm;
 
 Shader* shader_water  = alloc_shader("shaders/water.glsl");
 Shader* shader_ground = alloc_shader("shaders/ground_mesh.glsl");
@@ -162,6 +163,7 @@ Batch_Of_Points particle_batch;
 void loadassets() {
 
     mesh_boat = alloc_load_mesh("../shared_assets/Boate_Smooth.obj");
+    mesh_palm = alloc_load_mesh("../shared_assets/palm.obj");
 
     Mesh load_mesh(char* name) {
         OBJ_Data obj = load_obj(name);
@@ -379,23 +381,17 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
     begin_geometry_pass(R, cam);
 
-    {
-        static Material_PBR material_ship = {
-            albedo = {1, 0, 0},
-            metallic = 0.1,
-            roughness = 0.1
-        };
-
+    void draw_entity(Entity* en) {
         InstanceData data = {};
-        data.model = mat4_identity();
+        data.model = to_matrix(en.tr);
         data.uv_offset_scale = make_vec(vec2_zero, vec2_one);
-        data.albedo_color = make_vec(material_ship.albedo, 1.0);
-        data.metallic_roughness = make_vec(material_ship.metallic, material_ship.roughness);
-        data.albedo_texture = ensure_texture_handle(*white_texture);
+        data.albedo_color = make_vec(en.pbr.albedo, 1.0);
+        data.metallic_roughness = make_vec(en.pbr.metallic, en.pbr.roughness);
+        data.albedo_texture = ensure_texture_handle(en.texture);
 
         update_ssbo("Instances", *data, sizeof InstanceData);
 
-        mesh_draw(mesh_boat);
+        mesh_draw(en.mesh);
     }
 
 
@@ -403,13 +399,17 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         let en = *entities[it];
         // if sqdist(en.tr.position, cam.transform.position) > region_size*2*region_size*2 continue;
 
-        if en.draw_command {
-            InstanceData* ins = batch(en.draw_command, to_matrix(en.tr), vec2_zero, vec2_one, en.pbr, en.texture);
-        } else if en.db {
-            draw_geometry(R, @en.db, en.pbr, en.texture, to_matrix(en.tr));
-        } else {
-            gizmo_point(en.tr.position, Red, 0.5);
+        if en.mesh {
+            draw_entity(en);
         }
+
+        // if en.draw_command {
+        //     InstanceData* ins = batch(en.draw_command, to_matrix(en.tr), vec2_zero, vec2_one, en.pbr, en.texture);
+        // } else if en.db {
+        //     draw_geometry(R, @en.db, en.pbr, en.texture, to_matrix(en.tr));
+        // } else {
+        //     gizmo_point(en.tr.position, Red, 0.5);
+        // }
     }
 
     for 0 .. list_length(cannon_balls) {

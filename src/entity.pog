@@ -27,22 +27,19 @@ void spawn_cannonball(vec3 pos, vel, uint32 damage) {
 
 struct Entity {
     Texture2D* texture;
-    DrawBuffers* db;
-    DrawCommand* draw_command;
-
     Mesh* mesh;
 
     Material_PBR pbr;
 
-    with Transform tr;
-    with Rigidbody rb;
+    Transform tr;
+    Rigidbody rb;
 
-    float32 buoyancy_force_coff;
+    float buoyancy_force_coff;
 
     uint32 hp;
 
-    float32 cannon_yaw, cannon_pitch;
-    float32 cannon_reload;
+    float cannon_yaw, cannon_pitch;
+    float cannon_reload;
     uint32 next_cannon;
     bool fire_cannons;
     bool sails_unfurled;
@@ -59,7 +56,6 @@ struct Entity {
 Entity entity_default() {
     Entity en = {};
     en.texture = *white_texture;
-    en.db = null;
     en.tr = transform_default();
     en.hp = 10;
     en.buoyancy_force_coff = 1;
@@ -92,20 +88,12 @@ Entity* spawn_entity(Entity en) {
     return res;
 }
 
-Entity* spawn_entity(DrawBuffers* db, Texture2D* tex) {
+Entity* spawn_entity(Mesh* mesh, Texture2D* tex) {
     Entity en = entity_default();
     en.capsule = Boate_Capsule;
     en.texture = tex;
-    en.db = db;
+    en.mesh = mesh;
     en.show_health_bar = true;
-
-    for 0 .. list_length(draw_commands) {
-        let dc = *draw_commands[it];
-        if dc.db == db {
-            en.draw_command = dc;
-            break;
-        }
-    }
 
     return spawn_entity(en);
 }
@@ -225,7 +213,7 @@ void update(Entity* en, float32 dt) {
         // we can do a single mat3 mul and just add translation afterwards
 
         vec3[] offsets = { vec3_zero };
-        if en.db == *Boate { // TODO: hack!
+        if en.mesh == mesh_boat { // TODO: hack!
             offsets = buoyancy_points;
         }
 
@@ -297,11 +285,11 @@ void spawn_world() {
     // world.town.has_buoyancy = false;
 
 
-    world.player_boat = spawn_entity(*Boate, *test_color_texture);
+    world.player_boat = spawn_entity(mesh_boat, *test_color_texture);
     world.player_boat.tr.position = {-20, 0, 0};
 
     for 1 .. 2 {
-        Entity* e = spawn_entity(*Boate, *white_texture);
+        Entity* e = spawn_entity(mesh_boat, *white_texture);
         e.tr.position = {0, 0, it * 50};
     }
 
