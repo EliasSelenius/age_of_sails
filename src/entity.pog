@@ -90,7 +90,7 @@ Entity* spawn_entity(Entity en) {
 
 Entity* spawn_entity(Mesh* mesh, Texture2D* tex) {
     Entity en = entity_default();
-    en.capsule = Boate_Capsule;
+    en.capsule = boat_collider_from_mesh(mesh);
     en.texture = tex;
     en.mesh = mesh;
     en.show_health_bar = true;

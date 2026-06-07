@@ -5,8 +5,8 @@ bool terrain_wireframe = false;
 
 
 const chunk_lod_count = 8;
-DrawBuffers[chunk_lod_count] chunk_meshes;
-DrawBuffers full_res_plane_mesh;
+Mesh*[chunk_lod_count] chunk_meshes;
+Mesh* full_res_plane_mesh;
 
 const render_distance = 20;
 
@@ -114,17 +114,15 @@ TerrainRegion create_region() {
 
 void init_terrain() {
 
-    DrawBuffers create_plane(uint32 size, Mesh_Primitive prim) {
-        float32 uv_scale = 1;
-        float32 scale = region_size / size as float32;
+    Mesh* create_plane(uint32 size, Mesh_Primitive prim) {
+        float uv_scale = 1;
+        float scale = region_size / size as float;
 
-        let mesh_plane = mesh_create();
+        Mesh* mesh_plane = mesh_alloc();
         mesh_plane.primitive = prim;
-        add_plane(*mesh_plane, size, uv_scale, make_mat4(scale));
+        add_plane(mesh_plane, size, uv_scale, make_mat4(scale));
 
-        let db = create_draw_buffers(mesh_plane);
-        mesh_free(mesh_plane);
-        return db;
+        return mesh_plane;
     }
 
     for 0 .. chunk_lod_count {
@@ -139,7 +137,9 @@ void init_terrain() {
     }
 
     full_res_plane_mesh = create_plane(region_size, Mesh_Primitive.Triangles);
-    db_quad = create_plane(8, Mesh_Primitive.Quad_Patches);
+    mesh_water = create_plane(8, Mesh_Primitive.Quad_Patches);
+    mesh_water.front_face = .Fill;
+    mesh_water.back_face  = .Fill;
 
     Color[] colors = {White, Gray, Black, Red, Green, Blue, Yellow, Cyan, Purple};
 
@@ -288,26 +288,29 @@ void render_terrain() {
         let chunk = *regions[it];
 
         vec2 chunk_pos = make_vec(chunk.coord * region_size);
-        set_uniform("u_chunk_pos", chunk_pos);
-
 
         let rel = chunk.coord - camera_coord;
         chunk.lod = min(max(abs(rel.x), abs(rel.y)), lod_index.length - 1);
-        set_uniform("u_color_tint", make_vec(0, 0, 0, 0));
+        uint32 lod = lod_index[chunk.lod];
 
         uint32 sub = pow(2, chunk.lod);
         uint32 size = region_size / sub;
+
+        Mesh* mesh = chunk_meshes[lod];
+
+        set_uniform("u_chunk_pos", chunk_pos);
+        set_uniform("u_color_tint", make_vec(0, 0, 0, 0));
         set_uniform("u_chunk_size", size as int32);
-
-
-        set_face_render_mode(Poly.Fill, Poly.Cull);
-        draw_elements(chunk_meshes[lod_index[chunk.lod]]);
+        mesh_draw(mesh);
 
         if terrain_wireframe {
             let c = color_to_vec4(chunk.color);
-            set_uniform("u_color_tint", c);
-            set_face_render_mode(Poly.Line, Poly.Line);
-            draw_elements(chunk_meshes[lod_index[chunk.lod]]);
+
+            vec3[] lod_color = {{1,0,0}, {1,1,0}, {0,1,0}, {0,1,1}, {0,0,1}};
+            vec3 color = lod_color[lod % lod_color.length];
+
+            set_uniform("u_color_tint", make_vec(color, 1.0));
+            mesh_draw(mesh, true);
         }
     }
 }

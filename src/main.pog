@@ -77,9 +77,9 @@ DeferredRenderer renderer;
 
 Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 
-Mesh[..] all_meshes = list_create(sizeof Mesh);
+Mesh*[..] all_meshes = list_create(sizeof Mesh*);
 
-Mesh* alloc_load_mesh(char* name) {
+Mesh* mesh_load(char* name) {
     Mesh* mesh = mesh_alloc();
 
     OBJ_Data obj = load_obj(name);
@@ -91,8 +91,11 @@ Mesh* alloc_load_mesh(char* name) {
     return mesh;
 }
 
+Mesh* mesh_water;
 Mesh* mesh_boat;
 Mesh* mesh_palm;
+Mesh* mesh_boat2;
+Mesh* mesh_first_townscaper;
 
 Shader* shader_water  = alloc_shader("shaders/water.glsl");
 Shader* shader_ground = alloc_shader("shaders/ground_mesh.glsl");
@@ -104,18 +107,9 @@ Texture2D texture_sand;
 Texture2D texture_grass;
 Texture2D texture_cliff;
 
-DrawBuffers pyramid;
-DrawBuffers Boate;
-DrawBuffers Boat2;
-DrawBuffers firstTownscaper;
-DrawBuffers db_palm;
-DrawBuffers db_quad;
-
-DrawCommand[..] draw_commands = list_create(sizeof DrawCommand);
 
 RenderLayer static_ui;
 
-Capsule Boate_Capsule;
 Capsule Capsule_Human = {
     a = vec3_zero,
     b = {0, 1.33, 0}, // 1.33 = 1.83 - 2*0.25
@@ -127,7 +121,7 @@ struct Capsule {
     float32 radius;
 }
 
-Capsule boat_collider_from_mesh(Mesh m) {
+Capsule boat_collider_from_mesh(Mesh* m) {
     Capsule c = {};
     c.radius = m.bb_max.x;
     c.a.z = m.bb_min.z + c.radius;
@@ -162,18 +156,10 @@ Batch_Of_Points particle_batch;
 
 void loadassets() {
 
-    mesh_boat = alloc_load_mesh("../shared_assets/Boate_Smooth.obj");
-    mesh_palm = alloc_load_mesh("../shared_assets/palm.obj");
-
-    Mesh load_mesh(char* name) {
-        OBJ_Data obj = load_obj(name);
-        Mesh mesh = obj_to_mesh(obj);
-        free_obj(obj);
-        gen_normals(mesh);
-        calc_bounds(*mesh);
-
-        return mesh;
-    }
+    mesh_boat             = mesh_load("../shared_assets/Boate_Smooth.obj");
+    mesh_palm             = mesh_load("../shared_assets/palm.obj");
+    mesh_boat2            = mesh_load("../shared_assets/Boat2.obj");
+    mesh_first_townscaper = mesh_load("../shared_assets/firstTownscaper.obj");
 
     char*[] asset_name = {
         "pyramid.obj",
@@ -182,35 +168,22 @@ void loadassets() {
     };
 
     for 0 .. asset_name.length {
-        let mesh = load_mesh(concat("../shared_assets/", asset_name[it]));
-
-        mesh_free(mesh);
-
+        Mesh* mesh = mesh_load(concat("../shared_assets/", asset_name[it]));
         list_add(*all_meshes, *mesh);
     }
 
-    pyramid = load_drawable("../shared_assets/pyramid.obj");
-    Boat2 = load_drawable("../shared_assets/Boat2.obj");
-    db_palm = load_drawable("../shared_assets/palm.obj");
+    // {
+    //     OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
+    //     Mesh mesh = obj_to_mesh(obj);
 
-    Mesh Boate_Mesh = load_mesh("../shared_assets/Boate_Smooth.obj");
-    Boate = create_draw_buffers(Boate_Mesh);
-    Boate_Capsule = boat_collider_from_mesh(Boate_Mesh);
-    mesh_free(Boate_Mesh);
+    //     let windows = obj.objects[4];
+    //     flip_indices(mesh, windows.indices_start, windows.indices_length);
+    //     gen_normals(mesh); // generating normals here to fix wrong normals for windows, this gives us a flatshaded look until we fix obj_to_mesh()
 
-
-    {
-        OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
-        Mesh mesh = obj_to_mesh(obj);
-
-        let windows = obj.objects[4];
-        flip_indices(mesh, windows.indices_start, windows.indices_length);
-        gen_normals(mesh); // generating normals here to fix wrong normals for windows, this gives us a flatshaded look until we fix obj_to_mesh()
-
-        firstTownscaper = create_draw_buffers(mesh);
-        free_obj(obj);
-        mesh_free(mesh);
-    }
+    //     firstTownscaper = create_draw_buffers(mesh);
+    //     free_obj(obj);
+    //     mesh_free(mesh);
+    // }
 
     test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
     town_texture = load_texture2D("../shared_assets/TownColor.bmp");
@@ -257,6 +230,14 @@ void main() {
     spawn_world();
     init_terrain();
 
+    {
+        for 0 .. list_length(all_meshes) {
+            Mesh* mesh = all_meshes[it];
+            let en = spawn_entity(mesh, *white_texture);
+            en.tr.position = {0, 20, 20 + 10*it};
+        }
+    }
+
 
     struct SaveData {
         GameViewMode mode;
@@ -273,9 +254,6 @@ void main() {
 
     glPatchParameteri(GL_PATCH_VERTICES, 4);
 
-    let dc = make_draw_command(*db_palm, drawmode_gpass);
-    list_add(*draw_commands, *dc);
-
     while grax_loop() {
         float32 dt = deltatime();
 
@@ -283,7 +261,7 @@ void main() {
             case .BoatControl: {
                 let en = world.player_boat;
 
-                if key_down(GLFW_KEY_LEFT_SHIFT) {
+                if key_down(Key.left_shift) {
                     disable_cursor();
 
                     float32 pm = Pi/4;
@@ -319,7 +297,7 @@ void main() {
                     en.sails_unfurled = false;
                 }
 
-                if key_pressed(GLFW_KEY_ENTER) game_view_mode = .FreeCam;
+                if key_pressed(Key.enter) game_view_mode = .FreeCam;
             } break;
 
             case .FreeCam: {
@@ -333,7 +311,7 @@ void main() {
                 //     gizmo_point(pos, Black, 0.4);
                 // }
 
-                if key_pressed(GLFW_KEY_ENTER) game_view_mode = .BoatControl;
+                if key_pressed(Key.enter) game_view_mode = .BoatControl;
             } break;
         }
 
@@ -402,14 +380,6 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         if en.mesh {
             draw_entity(en);
         }
-
-        // if en.draw_command {
-        //     InstanceData* ins = batch(en.draw_command, to_matrix(en.tr), vec2_zero, vec2_one, en.pbr, en.texture);
-        // } else if en.db {
-        //     draw_geometry(R, @en.db, en.pbr, en.texture, to_matrix(en.tr));
-        // } else {
-        //     gizmo_point(en.tr.position, Red, 0.5);
-        // }
     }
 
     for 0 .. list_length(cannon_balls) {
@@ -424,12 +394,6 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         mat4 model = make_mat4(ball.pos, 0.2);
         draw_geometry(R, R.db_inverted_box, mat, model);
     }
-
-    // {
-    //     vec3 pos = cam.transform.position + forward(cam.transform)*40;
-    //     pos.y = terrian_height(pos.x, pos.z);
-    //     draw_geometry(R, pyramid, make_mat4(pos, 10));
-    // }
 
     if key_toggle('P') {
         let center = round2multiple(cam.transform.position, region_size);
@@ -490,12 +454,6 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         }
     }
 
-    for 0 .. list_length(draw_commands) {
-        let dc = *draw_commands[it];
-        issue_draw_command(dc);
-        list_clear(dc.instance_data);
-    }
-
     render_terrain();
 
     draw_tree(tree_pos, 0);
@@ -523,20 +481,7 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             bind_texture2D(chunk.height_map_tex, 2);
             vec2 chunk_pos = make_vec(chunk.coord * (region_size));
             set_uniform("u_water_pos", chunk_pos);
-            DrawBuffers water_db;
-            if chunk.lod < 4 {
-                water_db = full_res_plane_mesh;
-            } else {
-                water_db = chunk_meshes[lod_index[chunk.lod]];
-            }
-
-
-            Poly poly = terrain_wireframe ? .Line : .Fill;
-            set_face_render_mode(poly, poly);
-
-            glBindVertexArray(db_quad.vao);
-            glDrawElements(GL_PATCHES, db_quad.elements_count, GL_UNSIGNED_INT, null);
-            glBindVertexArray(0);
+            mesh_draw(mesh_water, terrain_wireframe);
         }
 
         if false {
