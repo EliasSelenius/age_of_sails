@@ -77,8 +77,6 @@ DeferredRenderer renderer;
 
 Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 
-Mesh*[..] all_meshes = list_create(sizeof Mesh*);
-
 Mesh* mesh_load(char* name) {
     Mesh* mesh = mesh_alloc();
 
@@ -91,6 +89,7 @@ Mesh* mesh_load(char* name) {
     return mesh;
 }
 
+Mesh*[..] all_meshes = list_create(sizeof Mesh*);
 Mesh* mesh_water;
 Mesh* mesh_boat;
 Mesh* mesh_palm;
@@ -161,16 +160,20 @@ void loadassets() {
     mesh_boat2            = mesh_load("../shared_assets/Boat2.obj");
     mesh_first_townscaper = mesh_load("../shared_assets/firstTownscaper.obj");
 
-    char*[] asset_name = {
-        "pyramid.obj",
-        "Boat2.obj",
-        "Boate_Smooth.obj"
-    };
+    void callback(FileInfo info, void* user_ptr) {
+        if info.file_kind != .file return;
 
-    for 0 .. asset_name.length {
-        Mesh* mesh = mesh_load(concat("../shared_assets/", asset_name[it]));
-        list_add(*all_meshes, *mesh);
+        if string_equals(info.ext, "obj") {
+            Mesh* mesh = mesh_load(info.full_path.chars);
+            mesh.name = alloc_string_copy(info.name);
+            list_add(*all_meshes, *mesh);
+        } else if string_equals(info.ext, "bmp") {
+            
+        }
     }
+
+    enumerate_directory(make_string("../shared_assets/"), callback, null);
+
 
     // {
     //     OBJ_Data obj = load_obj("../shared_assets/firstTownscaper.obj");
@@ -234,6 +237,7 @@ void main() {
         for 0 .. list_length(all_meshes) {
             Mesh* mesh = all_meshes[it];
             let en = spawn_entity(mesh, *white_texture);
+            en.has_buoyancy = false;
             en.tr.position = {0, 20, 20 + 10*it};
         }
     }
@@ -460,6 +464,7 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
 
     begin_light_pass(R);
+    set_uniform("u_fog_enabled", 1 as uint32);
 
     if key_toggle('J') { // water
         use(shader_water);

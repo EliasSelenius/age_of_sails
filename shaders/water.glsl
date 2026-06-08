@@ -214,7 +214,7 @@ void main() {
         FragColor.rgb += sky_light;
         // FragColor.rgb = vec3(1, 0, 0);
 
-        // FragColor.a = 0.9;
+        FragColor.a = 1.0;
     }
 
 }
