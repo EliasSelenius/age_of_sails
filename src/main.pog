@@ -77,20 +77,33 @@ DeferredRenderer renderer;
 
 Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 
-Mesh* mesh_load(char* name) {
-    Mesh* mesh = mesh_alloc();
+void mesh_load(char* full_path) {
+    OBJ_Data obj = load_obj(full_path);
 
-    OBJ_Data obj = load_obj(name);
-    obj_to_mesh(obj, mesh);
+    string file_name;
+    decompose_path(make_string(full_path), null, *file_name, null);
+
+    for 0 .. list_length(obj.objects) {
+        OBJ_Object o = obj.objects[it];
+
+        Mesh* mesh = mesh_alloc();
+        mesh.name = alloc_string_copy(concat(file_name, make_string("."), o.name));
+
+        obj_to_mesh(obj, mesh, o.indices_length, o.indices_start);
+
+        set_origin(mesh, avg_vertex_pos(mesh));
+        gen_normals(mesh);
+        calc_bounds(mesh);
+
+        list_add(*all_meshes, *mesh);
+    }
+
     free_obj(obj);
-    gen_normals(mesh);
-    calc_bounds(mesh);
-
-    return mesh;
 }
 
 Mesh*[..] all_meshes = list_create(sizeof Mesh*);
 Mesh* mesh_water;
+
 Mesh* mesh_boat;
 Mesh* mesh_palm;
 Mesh* mesh_boat2;
@@ -155,24 +168,30 @@ Batch_Of_Points particle_batch;
 
 void loadassets() {
 
-    mesh_boat             = mesh_load("../shared_assets/Boate_Smooth.obj");
-    mesh_palm             = mesh_load("../shared_assets/palm.obj");
-    mesh_boat2            = mesh_load("../shared_assets/Boat2.obj");
-    mesh_first_townscaper = mesh_load("../shared_assets/firstTownscaper.obj");
-
     void callback(FileInfo info, void* user_ptr) {
         if info.file_kind != .file return;
 
         if string_equals(info.ext, "obj") {
-            Mesh* mesh = mesh_load(info.full_path.chars);
-            mesh.name = alloc_string_copy(info.name);
-            list_add(*all_meshes, *mesh);
+            mesh_load(info.full_path.chars);
         } else if string_equals(info.ext, "bmp") {
             
         }
     }
 
     enumerate_directory(make_string("../shared_assets/"), callback, null);
+
+    print("all_meshes:\n");
+    for 0 .. list_length(all_meshes) {
+        Mesh* mesh = all_meshes[it];
+        print("    Mesh \"", mesh.name, "\"\n");
+
+        if string_equals(mesh.name, "palm") {
+            mesh.front_face = .Fill;
+            mesh.back_face = .Fill;
+        }
+    }
+
+    mesh_boat = all_meshes[0];
 
 
     // {
@@ -371,9 +390,10 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         data.metallic_roughness = make_vec(en.pbr.metallic, en.pbr.roughness);
         data.albedo_texture = ensure_texture_handle(en.texture);
 
-        update_ssbo("Instances", *data, sizeof InstanceData);
+        // update_ssbo("Instances", *data, sizeof InstanceData);
+        // mesh_draw(en.mesh);
 
-        mesh_draw(en.mesh);
+        mesh_batch(en.mesh, data);
     }
 
 
@@ -385,6 +405,8 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             draw_entity(en);
         }
     }
+
+    batch_end();
 
     for 0 .. list_length(cannon_balls) {
         CannonBall* ball = *cannon_balls[it];

@@ -11,21 +11,33 @@
     vec3 view_pos;\
     vec3 view_normal;\
     vec2 uv;\
+    vec4 tint;\
 }\
-
-uniform vec2 u_chunk_pos;
-uniform vec4 u_color_tint = vec4(0.0);
-uniform int u_chunk_size;
 
 layout (binding = 0) uniform sampler2D height_map;
 layout (binding = 1) uniform sampler2D texture_albedo_sand;
 layout (binding = 2) uniform sampler2D texture_albedo_grass;
 layout (binding = 3) uniform sampler2D texture_albedo_cliff;
 
-// layout(std430) readonly buffer PerInstanceData {
-//     vec2 chunk_pos[];
-// };
+struct Chunk {
+    vec2 pos;
+};
 
+layout(std430) readonly buffer Chunks {
+    Chunk chunks[];
+};
+
+struct InstanceData {
+    mat4 model;
+    vec4 uv_offset_scale;
+    vec4 albedo_color;
+    vec2 metallic_roughness;
+    sampler2D albedo_texture;
+};
+
+layout (std140) readonly buffer Instances {
+    InstanceData instances[];
+};
 
 
 #ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -33,12 +45,20 @@ layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
 layout (location = 2) in vec2 a_Uv;
 
+layout (location = 3) in uint a_Instance_Index;
+// layout (location = 3) in vec2 a_Chunk_Pos;
+
 out FragData_Block vertex_output;
 
 void main() {
-    // vec2 chunk_pos = chunk_pos[gl_InstanceID];
-    vec2 chunk_pos = u_chunk_pos;
+    // Chunk chunk = chunks[a_Instance_Index];
+    // vec2 chunk_pos = chunk.pos;
 
+    // vec2 chunk_pos = chunk_pos[gl_InstanceID];
+    // vec2 chunk_pos = u_chunk_pos;
+
+    InstanceData data = instances[a_Instance_Index];
+    vertex_output.tint = data.albedo_color;
 
     vec3 vertex_pos = a_Pos;
 
@@ -47,7 +67,7 @@ void main() {
     // int s = u_chunk_size + 1;
     // vec3 vertex_pos = (vec3(id / s, 0, id % s) - vec2((s-1)/2.0, 0).xyx) / float(s-1) * region_size;
 
-    vec4 pos = vec4(vertex_pos, 1.0) + vec4(chunk_pos.x, 0, chunk_pos.y, 0);
+    vec4 pos = data.model * vec4(vertex_pos, 1.0); //  + vec4(chunk_pos.x, 0, chunk_pos.y, 0);
     vec4 n = noise_test(pos.xz);
     pos.y = n.w;
 
@@ -148,7 +168,7 @@ void main() {
     float contour = 1.0 - step(0.01, fract(frag_input.pos.y));
     // FragColor += vec3(contour);
 
-    FragColor = mix(FragColor, u_color_tint.rgb, u_color_tint.a);
+    FragColor = mix(FragColor, frag_input.tint.rgb, frag_input.tint.a);
 
     bvec3 na = isnan(FragColor);
     if (na.x || na.y || na.z) {

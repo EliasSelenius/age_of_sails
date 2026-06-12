@@ -301,7 +301,11 @@ void render_terrain() {
         set_uniform("u_chunk_pos", chunk_pos);
         set_uniform("u_color_tint", make_vec(0, 0, 0, 0));
         set_uniform("u_chunk_size", size as int32);
-        mesh_draw(mesh);
+        // mesh_draw(mesh);
+
+        InstanceData data = {};
+        data.model = make_mat4(make_vec(chunk_pos.x, 0, chunk_pos.y), 1.0);
+        mesh_batch(mesh, data);
 
         if terrain_wireframe {
             let c = color_to_vec4(chunk.color);
@@ -309,8 +313,11 @@ void render_terrain() {
             vec3[] lod_color = {{1,0,0}, {1,1,0}, {0,1,0}, {0,1,1}, {0,0,1}};
             vec3 color = lod_color[lod % lod_color.length];
 
-            set_uniform("u_color_tint", make_vec(color, 1.0));
+            data.albedo_color = make_vec(color, 1.0);
+            update_ssbo("Instances", *data, sizeof InstanceData);
             mesh_draw(mesh, true);
         }
     }
+
+    batch_end();
 }
