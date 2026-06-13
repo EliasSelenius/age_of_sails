@@ -93,7 +93,7 @@ Entity* spawn_entity(Mesh* mesh, Texture2D* tex) {
     en.capsule = boat_collider_from_mesh(mesh);
     en.texture = tex;
     en.mesh = mesh;
-    en.show_health_bar = true;
+    en.show_health_bar = false;
 
     return spawn_entity(en);
 }

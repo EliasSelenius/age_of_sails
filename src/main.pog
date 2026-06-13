@@ -80,8 +80,9 @@ Camera cam = make_camera(90 * deg2rad, 0.1, 10000);
 void mesh_load(char* full_path) {
     OBJ_Data obj = load_obj(full_path);
 
+    string path = alloc_string_copy(full_path); // full_path may be a temorary string allocation (temp_builder) an therefore gets invalid at some point through the for loop
     string file_name;
-    decompose_path(make_string(full_path), null, *file_name, null);
+    decompose_path(path, null, *file_name, null);
 
     for 0 .. list_length(obj.objects) {
         OBJ_Object o = obj.objects[it];
@@ -97,6 +98,8 @@ void mesh_load(char* full_path) {
 
         list_add(*all_meshes, *mesh);
     }
+
+    free(path.chars);
 
     free_obj(obj);
 }
@@ -213,6 +216,9 @@ void loadassets() {
     texture_sand = load_texture2D("assets/Bright_Desert_Sand_sjzkfega_1K_BaseColor.bmp");
     texture_grass = load_texture2D("assets/Grass_Cut_pjvqk0_1K_BaseColor.bmp");
     texture_cliff = load_texture2D("assets/Layered_Rock_Cliff_tlonbisya_1K_BaseColor.bmp");
+
+
+    gltf_load("../shared_assets/blender/Boate.glb");
 }
 
 void on_event(AppEvent event) {
