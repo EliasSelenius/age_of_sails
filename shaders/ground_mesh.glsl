@@ -1,6 +1,5 @@
 
-#extension GL_ARB_bindless_texture : require
-
+#include "../grax/shaders/prelude.glsl"
 #include "../grax/shaders/noise.glsl"
 #include "../grax/shaders/camera.glsl"
 #include "shaders/ground.glsl"
@@ -19,13 +18,6 @@ layout (binding = 1) uniform sampler2D texture_albedo_sand;
 layout (binding = 2) uniform sampler2D texture_albedo_grass;
 layout (binding = 3) uniform sampler2D texture_albedo_cliff;
 
-struct Chunk {
-    vec2 pos;
-};
-
-layout(std430) readonly buffer Chunks {
-    Chunk chunks[];
-};
 
 struct InstanceData {
     mat4 model;
@@ -45,19 +37,12 @@ layout (location = 0) in vec3 a_Pos;
 layout (location = 1) in vec3 a_Normal;
 layout (location = 2) in vec2 a_Uv;
 
-layout (location = 3) in uint a_Instance_Index;
-// layout (location = 3) in vec2 a_Chunk_Pos;
-
 out FragData_Block vertex_output;
 
 void main() {
-    // Chunk chunk = chunks[a_Instance_Index];
-    // vec2 chunk_pos = chunk.pos;
+    uint instance_id = uint(gl_BaseInstanceARB) + uint(gl_InstanceID);
+    InstanceData data = instances[instance_id];
 
-    // vec2 chunk_pos = chunk_pos[gl_InstanceID];
-    // vec2 chunk_pos = u_chunk_pos;
-
-    InstanceData data = instances[a_Instance_Index];
     vertex_output.tint = data.albedo_color;
 
     vec3 vertex_pos = a_Pos;

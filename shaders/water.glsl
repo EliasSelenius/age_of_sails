@@ -1,4 +1,5 @@
 
+#include "../grax/shaders/prelude.glsl"
 #include "../grax/shaders/app.glsl"
 #include "../grax/shaders/camera.glsl"
 #include "../grax/shaders/lights.glsl"
@@ -12,36 +13,41 @@ layout (binding = 0) uniform sampler2D g_buffer_pos;
 layout (binding = 1) uniform sampler2D water_tex;
 layout (binding = 2) uniform sampler2D height_map;
 
-uniform vec2 u_water_pos;
 uniform float depth_factor = 0.05;
 
-#define Def_FragData FragData {\
+struct InstanceData {
+    mat4 model;
+    vec4 uv_offset_scale;
+    vec4 albedo_color;
+    vec2 metallic_roughness;
+    sampler2D albedo_texture;
+};
+
+layout (std140) readonly buffer Instances {
+    InstanceData instances[];
+};
+
+
+#define VertexOutput VertexOutput_Block {\
+    vec2 chunk_coord;\
+    flat uint instance_id;\
+}\
+
+#define TessControlOutput TessControlOutput_Block {\
+    vec2 chunk_coord;\
+    flat uint instance_id;\
+}\
+
+#define TessEvalOutput TessEvalOutput_Block {\
     vec3 world_pos;\
     vec3 world_normal;\
     vec3 view_pos;\
     vec3 view_normal;\
     vec2 uv;\
+    flat uint instance_id;\
 }\
 
-#define EvalData_Block EvalData {\
-    vec3 pos;\
-}\
 
-#ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-layout (location = 0) in vec3 a_Pos;
-layout (location = 1) in vec3 a_Normal;
-layout (location = 2) in vec2 a_Uv;
-
-void main() {
-    gl_Position = vec4(a_Pos, 1.0);
-}
-#endif
-
-
-#ifdef TessControl //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-layout (vertices = 4) out;
-
-out EvalData_Block out_patch[];
 
 float get_tess_level(vec2 coord) {
 
@@ -58,17 +64,49 @@ float get_tess_level(vec2 coord) {
     return mix(min_tess, max_tess, clamp(pow((max_dist - dist) / (max_dist - min_dist), 4), 0.0, 1.0));
 }
 
+
+
+#ifdef VertexShader /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+layout (location = 0) in vec3 a_Pos;
+layout (location = 1) in vec3 a_Normal;
+layout (location = 2) in vec2 a_Uv;
+
+out VertexOutput vs_output;
+
+void main() {
+    uint instance_id = uint(gl_BaseInstanceARB) + uint(gl_InstanceID);
+    InstanceData data = instances[instance_id];
+
+    vs_output.instance_id = instance_id;
+    vs_output.chunk_coord = data.model[3].xz;
+
+    gl_Position = data.model * vec4(a_Pos, 1.0);
+}
+#endif
+
+
+#ifdef TessControl //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+layout (vertices = 4) out;
+
+in  VertexOutput       tcs_input[];
+out TessControlOutput  tcs_output[];
+
 void main() {
     gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
 
+    vec2 chunk_coord = tcs_input[gl_InvocationID].chunk_coord;
+    uint instance_id = tcs_input[gl_InvocationID].instance_id;
+
+    tcs_output[gl_InvocationID].chunk_coord = chunk_coord;
+    tcs_output[gl_InvocationID].instance_id = instance_id;
 
     float d = 128.0 / 2.0;
-    gl_TessLevelOuter[0] = get_tess_level(u_water_pos + vec2( 0, -d)); // -z
-    gl_TessLevelOuter[1] = get_tess_level(u_water_pos + vec2(-d,  0)); // -x
-    gl_TessLevelOuter[2] = get_tess_level(u_water_pos + vec2( 0,  d)); // +z
-    gl_TessLevelOuter[3] = get_tess_level(u_water_pos + vec2( d,  0)); // +x
+    gl_TessLevelOuter[0] = get_tess_level(chunk_coord + vec2( 0, -d)); // -z
+    gl_TessLevelOuter[1] = get_tess_level(chunk_coord + vec2(-d,  0)); // -x
+    gl_TessLevelOuter[2] = get_tess_level(chunk_coord + vec2( 0,  d)); // +z
+    gl_TessLevelOuter[3] = get_tess_level(chunk_coord + vec2( d,  0)); // +x
 
-    float level = get_tess_level(u_water_pos);
+    float level = get_tess_level(chunk_coord);
     gl_TessLevelInner[0] = level;
     gl_TessLevelInner[1] = level;
 }
@@ -77,8 +115,9 @@ void main() {
 
 #ifdef TessEval /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 layout (quads, equal_spacing, ccw) in;
-in EvalData_Block input[];
-out Def_FragData output_vertex;
+
+in  TessControlOutput tes_input[];
+out TessEvalOutput    tes_output;
 
 void main() {
 
@@ -87,34 +126,31 @@ void main() {
     vec4 p2 = gl_in[2].gl_Position;
     vec4 p3 = gl_in[3].gl_Position;
 
-    // vec2 uv = gl_TessCoord.xy;
+    uint instance_id = tes_input[0].instance_id;
+    tes_output.instance_id = instance_id;
+
     vec4 vert_pos = mix(mix(p0, p1, gl_TessCoord.x), mix(p2, p3, gl_TessCoord.x), gl_TessCoord.y);
-    vec2 coord = u_water_pos + vert_pos.xz;
 
     vec2 uv = (vert_pos.xz + vec2(64.0)) / 128.0; // TODO: hardcoded chunk dimensions
-    // vec2 uv = gl_TessCoord.xy;
 
+    vec2 coord = vert_pos.xz;
 
     vec4 terrain = noise_test(coord);
     // vec4 terrain = get_terrain(height_map, uv);
     float depth = max(-terrain.w, 0.0);
     vec2 shore_dir = -normalize(terrain.xz);
 
-
-
     vec3 water_offset = vec3(0, 0, 0);
     vec3 normal = vec3(0, 1, 0);
     ocean(coord, depth, Time, water_offset, normal);
 
-    vec4 wpos = vert_pos;
-    wpos.xz += u_water_pos;
-    wpos.xyz += water_offset;
+    vec4 wpos = vert_pos + vec4(water_offset, 0.0);
 
-    output_vertex.world_pos = wpos.xyz;
-    output_vertex.world_normal = normal;
-    output_vertex.view_pos = (camera.view * wpos).xyz;
-    output_vertex.view_normal = mat3(camera.view) * normal;
-    output_vertex.uv = uv;
+    tes_output.world_pos = wpos.xyz;
+    tes_output.world_normal = normal;
+    tes_output.view_pos = (camera.view * wpos).xyz;
+    tes_output.view_normal = mat3(camera.view) * normal;
+    tes_output.uv = uv;
     gl_Position = camera.projection * camera.view * wpos;
 }
 #endif
@@ -122,7 +158,7 @@ void main() {
 
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-in Def_FragData input;
+in TessEvalOutput input;
 out vec4 FragColor;
 
 void main() {
@@ -147,10 +183,10 @@ void main() {
     vec4 shore_line_color = vec4(step(alpha, 0.01)) * exp(-dist_to_water * 0.005);
 
     // foam
-    vec2 p = u_water_pos + input.uv*128;
-    float d = voronoi(p*0.2);
-    d = smoothstep(0.5, 2.0, d);
-    vec4 foam_color = vec4(vec3(d), 0.0);
+    // vec2 p = u_water_pos + input.uv*128;
+    // float d = voronoi(p*0.2);
+    // d = smoothstep(0.5, 2.0, d);
+    // vec4 foam_color = vec4(vec3(d), 0.0);
 
 
     vec4 color = water_color;// + shore_line_color + foam_color;

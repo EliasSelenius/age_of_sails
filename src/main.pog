@@ -511,11 +511,18 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         for 0 .. regions_array_size {
             let chunk = *regions[it];
 
-            bind_texture2D(chunk.height_map_tex, 2);
+            // bind_texture2D(chunk.height_map_tex, 2);
             vec2 chunk_pos = make_vec(chunk.coord * (region_size));
-            set_uniform("u_water_pos", chunk_pos);
-            mesh_draw(mesh_water, terrain_wireframe);
+            // set_uniform("u_water_pos", chunk_pos);
+            // mesh_draw(mesh_water, terrain_wireframe);
+
+            InstanceData data = {};
+            data.model = mat4_translate(chunk_pos.x, 0.0, chunk_pos.y)
+
+            mesh_batch(mesh_water, data);
         }
+
+        batch_end();
 
         if false {
             const count = 10;

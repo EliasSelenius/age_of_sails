@@ -298,11 +298,6 @@ void render_terrain() {
 
         Mesh* mesh = chunk_meshes[lod];
 
-        set_uniform("u_chunk_pos", chunk_pos);
-        set_uniform("u_color_tint", make_vec(0, 0, 0, 0));
-        set_uniform("u_chunk_size", size as int32);
-        // mesh_draw(mesh);
-
         InstanceData data = {};
         data.model = make_mat4(make_vec(chunk_pos.x, 0, chunk_pos.y), 1.0);
         mesh_batch(mesh, data);
