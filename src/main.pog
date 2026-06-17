@@ -188,9 +188,13 @@ void loadassets() {
         Mesh* mesh = all_meshes[it];
         print("    Mesh \"", mesh.name, "\"\n");
 
-        if string_equals(mesh.name, "palm") {
+        if starts_with(mesh.name, make_string("palm.leaf")) {
             mesh.front_face = .Fill;
             mesh.back_face = .Fill;
+        }
+
+        if string_equals(mesh.name, "palm.Palm") {
+            mesh_palm = mesh;
         }
     }
 
@@ -239,6 +243,16 @@ void on_event(AppEvent event) {
 }
 
 void main() {
+
+    { // rtti
+        TypeInfo* type_table = rtti_types;
+        for 0 .. 100 {
+            TypeInfo* info = type_table + it;
+            print("type: ", info.name, "\n");
+        }
+    }
+
+
     app.on_event = on_event;
     grax_init();
     gizmo_setup();
@@ -359,7 +373,6 @@ void main() {
         } else {
             update_world();
         }
-
 
         draw_world(R, cam);
 
@@ -517,7 +530,7 @@ void draw_world(DeferredRenderer* R, Camera cam) {
             // mesh_draw(mesh_water, terrain_wireframe);
 
             InstanceData data = {};
-            data.model = mat4_translate(chunk_pos.x, 0.0, chunk_pos.y)
+            data.model = mat4_translate(chunk_pos.x, 0.0, chunk_pos.y);
 
             mesh_batch(mesh_water, data);
         }
@@ -557,6 +570,11 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
 
     end_frame(R);
+
+    for 0 .. list_length(current_batch.draw_calls) {
+        Draw_Call* call = *current_batch.draw_calls[it];
+        call.exhausted = false;
+    }
 }
 
 
