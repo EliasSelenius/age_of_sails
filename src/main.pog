@@ -376,6 +376,8 @@ void main() {
 
         draw_world(R, cam);
 
+        draw_ui_shader();
+
         gizmo_dispatch();
         dispatch_layer(*static_ui, {scale=1} as Transform2D);
     }
@@ -396,8 +398,14 @@ bool key_toggle(char key) {
 
 void draw_world(DeferredRenderer* R, Camera cam) {
 
-    let time = app.total_run_time / 10.0;
-    R.sun_dir = { cos(time), 0.5, sin(time) };
+
+    // let time = app.total_run_time / 10.0;
+    // R.sun_dir = { cos(time), 0.5, sin(time) };
+
+    if key_down(Key.C) {
+        vec3 cam_ray = camera_ray(cam, Input.mouse_pos);
+        R.sun_dir = cam_ray;
+    }
 
     begin_geometry_pass(R, cam);
 
