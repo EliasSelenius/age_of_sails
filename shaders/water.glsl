@@ -210,14 +210,14 @@ void main() {
     vec3 sun_radiance    = camera.sun_radiance.xyz;
     float ambient_factor = camera.sun_radiance.w;
 
-    vec3 ambient = sun_radiance * g.albedo * ambient_factor;
-    vec3 light = ambient + calc_dir_light(sun_dir, sun_radiance, g);
+    vec3 radiance = sun_radiance * max(0.0, dot(sun_dir, vec3(0,1,0)));
+
+    vec3 ambient = radiance * g.albedo * ambient_factor;
+    vec3 light = ambient + calc_dir_light(sun_dir, radiance, g);
 
     float sss_factor = 1.0 - exp(-max(0.0, input.world_pos.y));
     float upness = dot(world_normal, vec3(0,1,0));
     // light *= mix(1.0, 5.0, 1.0 - upness);
-
-    FragColor = vec4(light, color.a);
 
 
     if (gl_FrontFacing) { // atmosphere
@@ -237,21 +237,21 @@ void main() {
         vec4 fog_color = vec4(0.1, 0.4, 0.7, 1.0);
         float max_dist = 100;
         float t = 1 - exp(-dist_to_water / max_dist);
-        FragColor = mix(FragColor, fog_color, t);
+        // FragColor = mix(FragColor, fog_color, t);
 
         vec3 R = transpose(mat3(camera.view)) * normalize(-input.view_pos);
         vec3 N = world_normal;
 
         vec3 sky_dir = refract(-R, -N, 1.333);
 
-        vec3 sky_color = vec3(0.1, 0.5, 0.9);
-        vec3 sky_light = skybox_light(sun_dir, sun_radiance, sky_dir, sky_color);
+        Skybox sky = make_skybox(sun_dir);
+        vec3 sky_light = skybox_radiance(sky_dir, sky);
 
-        FragColor.rgb += sky_light;
-        // FragColor.rgb = vec3(1, 0, 0);
-
-        FragColor.a = 1.0;
+        // light += sky_light;
+        light += max(vec3(0.0), sky_light);
+        color.a = 1.0;
     }
 
+    FragColor = vec4(light, color.a);
 }
 #endif

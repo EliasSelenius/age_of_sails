@@ -37,7 +37,6 @@ TODOs:
               then write value to t2 with offset such that t2 is centered on camera
               pingpong t1 and t2
 
-        - correct mesh resolution
 
     Particles:
         - point sprites
@@ -174,9 +173,9 @@ void loadassets() {
     void callback(FileInfo info, void* user_ptr) {
         if info.file_kind != .file return;
 
-        if string_equals(info.ext, "obj") {
+        if string_equals(info.ext, ".obj") {
             mesh_load(info.full_path.chars);
-        } else if string_equals(info.ext, "bmp") {
+        } else if string_equals(info.ext, ".bmp") {
             
         }
     }
@@ -249,6 +248,13 @@ void main() {
         for 0 .. 100 {
             TypeInfo* info = type_table + it;
             print("type: ", info.name, "\n");
+        }
+
+        Symbol[] globs = Globals;
+        for 0 .. globs.length {
+            Symbol sym = globs[it];
+            char* type_name = sym.type_info ? sym.type_info.name : "null";
+            print(type_name, "    ", sym.name, "\n");
         }
     }
 
@@ -433,8 +439,6 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         }
     }
 
-    batch_end();
-
     for 0 .. list_length(cannon_balls) {
         CannonBall* ball = *cannon_balls[it];
 
@@ -445,8 +449,12 @@ void draw_world(DeferredRenderer* R, Camera cam) {
         };
 
         mat4 model = make_mat4(ball.pos, 0.2);
-        draw_geometry(R, R.db_inverted_box, mat, model);
+        // draw_geometry(R, R.db_inverted_box, mat, model);
+        // mesh_batch()
     }
+
+    batch_end();
+
 
     if key_toggle('P') {
         let center = round2multiple(cam.transform.position, region_size);
