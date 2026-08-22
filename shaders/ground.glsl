@@ -1,4 +1,6 @@
 
+#include "../grax/shaders/noise.glsl"
+
 vec4 get_terrain(sampler2D height_map, vec2 uv) {
 
     /*
@@ -30,7 +32,7 @@ vec4 get_terrain(sampler2D height_map, vec2 uv) {
     return vec4(normal, h1);
 }
 
-vec4 noise_test(vec2 coord) {
+vec4 terrain_noise(vec2 coord) {
     float largest_f = 1300.0;
     float largest_a = 350.0;
 

@@ -135,7 +135,7 @@ void main() {
 
     vec2 coord = vert_pos.xz;
 
-    vec4 terrain = noise_test(coord);
+    vec4 terrain = terrain_noise(coord);
     // vec4 terrain = get_terrain(height_map, uv);
     float depth = max(-terrain.w, 0.0);
     vec2 shore_dir = -normalize(terrain.xz);

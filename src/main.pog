@@ -113,6 +113,7 @@ Mesh* mesh_first_townscaper;
 
 Shader* shader_water  = alloc_shader("shaders/water.glsl");
 Shader* shader_ground = alloc_shader("shaders/ground_mesh.glsl");
+Shader* shader_map    = alloc_shader("shaders/map.glsl");
 
 Texture2D test_color_texture;
 Texture2D town_texture;
@@ -156,7 +157,7 @@ struct World {
 World world = {};
 
 
-enum GameViewMode { BoatControl; FreeCam; }
+enum GameViewMode { PlayerControl; BoatControl; FreeCam; }
 GameViewMode game_view_mode = .BoatControl;
 
 bool sim_pause = false;
@@ -231,6 +232,7 @@ void on_event(AppEvent event) {
 
                 shader_reload(shader_ground);
                 shader_reload(shader_water);
+                shader_reload(shader_map);
                 shader_reload(Shaders.dirlight);
                 shader_reload(Shaders.skybox);
                 shader_reload(Shaders.hdr2ldr);
@@ -272,6 +274,7 @@ void main() {
 
     R.sun_radiance = { 10, 10, 10 };
     R.sun_ambient_factor = 0.05;
+    R.sun_dir = { 0, 1, 0 };
 
     particle_batch = create_batch_of_points();
 
@@ -307,6 +310,12 @@ void main() {
         float32 dt = deltatime();
 
         switch (game_view_mode) {
+            case .PlayerControl: {
+                if entity_player {
+                    
+                }
+            } break;
+
             case .BoatControl: {
                 let en = world.player_boat;
 
@@ -381,11 +390,6 @@ void main() {
         }
 
         draw_world(R, cam);
-
-        draw_ui_shader();
-
-        gizmo_dispatch();
-        dispatch_layer(*static_ui, {scale=1} as Transform2D);
     }
 
     {
@@ -584,6 +588,23 @@ void draw_world(DeferredRenderer* R, Camera cam) {
 
     bool is_under_water = cam.transform.position.y <= approx_water_height(xz(cam.transform.position));
 
+
+    draw_ui_shader();
+
+    gizmo_dispatch();
+
+    if key_toggle(Key.M) { // map
+
+        static Transform2D map_camera = {scale=1600};
+        mouse_drag_control(*map_camera);
+
+        use(shader_map);
+        set_uniform("camera_matrix", to_matrix(map_camera));
+        set_blend_mode(Blend.Src_Alpha);
+        draw_screen_quad();
+    }
+
+    dispatch_layer(*static_ui, {scale=1} as Transform2D);
 
     end_frame(R);
 

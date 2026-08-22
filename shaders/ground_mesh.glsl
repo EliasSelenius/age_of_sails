@@ -1,6 +1,5 @@
 
 #include "../grax/shaders/prelude.glsl"
-#include "../grax/shaders/noise.glsl"
 #include "../grax/shaders/camera.glsl"
 #include "shaders/ground.glsl"
 
@@ -53,7 +52,7 @@ void main() {
     // vec3 vertex_pos = (vec3(id / s, 0, id % s) - vec2((s-1)/2.0, 0).xyx) / float(s-1) * region_size;
 
     vec4 pos = data.model * vec4(vertex_pos, 1.0); //  + vec4(chunk_pos.x, 0, chunk_pos.y, 0);
-    vec4 n = noise_test(pos.xz);
+    vec4 n = terrain_noise(pos.xz);
     pos.y = n.w;
 
     vec4 view_pos = camera.view * pos;
