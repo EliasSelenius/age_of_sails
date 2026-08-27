@@ -568,6 +568,27 @@ void draw_world(DeferredRenderer* R, Camera cam) {
     }
 
     {
+
+        // render water parcels
+        float spa = 5;
+        int32 s = 10;
+        vec3 center = round2multiple(cam.transform.position, spa);
+
+        // for z: -s .. s+1  for y: -s .. s+1  for x: -s .. s+1 {
+
+        //     vec3 c = center * {1, 0, 1};
+        //     vec3 p = c + {x, y-s, z}*spa;
+        //     // p.y
+
+        //     p = p + water_offset(xz(p));
+
+        //     GizmoPoint gp = {};
+        //     gp.pos = p;
+        //     gp.size = 0.2;
+        //     gp.color = White; // opacity(p.color, clamp01(p.life_time));
+        //     add_point(*particle_batch, gp);
+        // }
+
         for 0 .. list_length(particles) {
             Particle p = particles[it];
 
