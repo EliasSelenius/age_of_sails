@@ -137,6 +137,8 @@ struct Capsule {
 }
 
 Capsule boat_collider_from_mesh(Mesh* m) {
+    if m == null return {radius=1};
+
     Capsule c = {};
     c.radius = m.bb_max.x;
     c.a.z = m.bb_min.z + c.radius;
@@ -198,7 +200,7 @@ void loadassets() {
         }
     }
 
-    mesh_boat = all_meshes[0];
+    // mesh_boat = all_meshes[0];
 
 
     // {
@@ -214,15 +216,20 @@ void loadassets() {
     //     mesh_free(mesh);
     // }
 
-    test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
-    town_texture = load_texture2D("../shared_assets/TownColor.bmp");
-    water_texture = load_texture2D("../shared_assets/Water.bmp");
+    // test_color_texture = load_texture2D("../shared_assets/color_test.bmp");
+    // town_texture = load_texture2D("../shared_assets/TownColor.bmp");
+    // water_texture = load_texture2D("../shared_assets/Water.bmp");
+
+    test_color_texture  = white_texture;
+    town_texture        = white_texture;
+    water_texture       = white_texture;
+
     texture_sand = load_texture2D("assets/Bright_Desert_Sand_sjzkfega_1K_BaseColor.bmp");
     texture_grass = load_texture2D("assets/Grass_Cut_pjvqk0_1K_BaseColor.bmp");
     texture_cliff = load_texture2D("assets/Layered_Rock_Cliff_tlonbisya_1K_BaseColor.bmp");
 
 
-    gltf_load("../shared_assets/blender/Boate.glb");
+    // gltf_load("../shared_assets/blender/Boate.glb");
 }
 
 void on_event(AppEvent event) {

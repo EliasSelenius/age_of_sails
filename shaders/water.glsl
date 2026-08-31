@@ -20,7 +20,8 @@ struct InstanceData {
     vec4 uv_offset_scale;
     vec4 albedo_color;
     vec2 metallic_roughness;
-    sampler2D albedo_texture;
+    // sampler2D albedo_texture;
+    uvec2 albedo_texture;
 };
 
 layout (std140) readonly buffer Instances {
@@ -158,7 +159,7 @@ void main() {
 
 #ifdef FragmentShader ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-in TessEvalOutput input;
+in TessEvalOutput frag_input;
 out vec4 FragColor;
 
 void main() {
@@ -167,14 +168,14 @@ void main() {
     float dist_to_geometry = length(texture(g_buffer_pos, screen_uv).xyz);
     if (dist_to_geometry < 0.001) dist_to_geometry = 9999.0; // TODO: we might be able to remove this if statement if we clear g_buffer_pos with large z values
 
-    float dist_to_water = length(input.view_pos);
+    float dist_to_water = length(frag_input.view_pos);
     float depth = dist_to_geometry - dist_to_water;
 
     // vec4 deep_water = vec4(0.023, 0.051, 0.082, 1.0);
     vec4 deep_water = vec4(0.15, 0.4, 1.0, 1.0);
     vec4 shallow_water = vec4(0.2, 0.6, 0.8, 0.3);
     float alpha = clamp(1 - exp(-depth * depth_factor), 0, 1);
-    // vec4 water_color = mix(shallow_water, deep_water, alpha); // * texture(water_tex, input.uv);
+    // vec4 water_color = mix(shallow_water, deep_water, alpha); // * texture(water_tex, frag_input.uv);
     vec4 water_color = deep_water;
     water_color.a = 0.3;
 
@@ -183,7 +184,7 @@ void main() {
     vec4 shore_line_color = vec4(step(alpha, 0.01)) * exp(-dist_to_water * 0.005);
 
     // foam
-    // vec2 p = u_water_pos + input.uv*128;
+    // vec2 p = u_water_pos + frag_input.uv*128;
     // float d = voronoi(p*0.2);
     // d = smoothstep(0.5, 2.0, d);
     // vec4 foam_color = vec4(vec3(d), 0.0);
@@ -192,13 +193,13 @@ void main() {
     vec4 color = water_color;// + shore_line_color + foam_color;
 
     Geometry g;
-    g.view_pos = input.view_pos;
-    g.view_normal = -normalize(input.view_normal); // TODO: why did normals get inverted here? strange...
+    g.view_pos = frag_input.view_pos;
+    g.view_normal = -normalize(frag_input.view_normal); // TODO: why did normals get inverted here? strange...
     g.albedo = color.rgb;
     g.roughness = 0.4;
     g.metallic = 0.0;
 
-    vec3 world_normal = normalize(input.world_normal);
+    vec3 world_normal = normalize(frag_input.world_normal);
 
     if (!gl_FrontFacing) {
         g.view_normal = -g.view_normal;
@@ -215,7 +216,7 @@ void main() {
     vec3 ambient = radiance * g.albedo * ambient_factor;
     vec3 light = ambient + calc_dir_light(sun_dir, radiance, g);
 
-    float sss_factor = 1.0 - exp(-max(0.0, input.world_pos.y));
+    float sss_factor = 1.0 - exp(-max(0.0, frag_input.world_pos.y));
     float upness = dot(world_normal, vec3(0,1,0));
     // light *= mix(1.0, 5.0, 1.0 - upness);
 
@@ -226,7 +227,7 @@ void main() {
         vec3 warm = vec3(1.0, 0.9, 0.7); // yellow
         // vec3 warm = vec3(1.0, 0.0, 0.0);
 
-        float sun_amount = maxdot(normalize(input.view_pos), normalize(mat3(camera.view) * sun_dir));
+        float sun_amount = maxdot(normalize(frag_input.view_pos), normalize(mat3(camera.view) * sun_dir));
         vec3 fog_color = mix(cold, warm, pow(sun_amount, 8.0));
 
         float b = 0.001;
@@ -239,7 +240,7 @@ void main() {
         float t = 1 - exp(-dist_to_water / max_dist);
         // FragColor = mix(FragColor, fog_color, t);
 
-        vec3 R = transpose(mat3(camera.view)) * normalize(-input.view_pos);
+        vec3 R = transpose(mat3(camera.view)) * normalize(-frag_input.view_pos);
         vec3 N = world_normal;
 
         vec3 sky_dir = refract(-R, -N, 1.333);
