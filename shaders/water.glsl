@@ -14,6 +14,7 @@ layout (binding = 1) uniform sampler2D water_tex;
 layout (binding = 2) uniform sampler2D height_map;
 
 uniform float depth_factor = 0.05;
+uniform float u_water_roughness = 0.4;
 
 struct InstanceData {
     mat4 model;
@@ -195,8 +196,14 @@ void main() {
     g.view_pos = input.view_pos;
     g.view_normal = -normalize(input.view_normal); // TODO: why did normals get inverted here? strange...
     g.albedo = color.rgb;
-    g.roughness = 0.4;
-    g.metallic = 0.0;
+    g.roughness = u_water_roughness;
+    g.metallic  = 0.0;
+
+    Material mat;
+    mat.albedo    = vec3(1.0); // color.rgb;
+    mat.roughness = g.roughness;
+    mat.metallic  = g.metallic;
+    // mat.F0        = ;
 
     vec3 world_normal = normalize(input.world_normal);
 
@@ -213,7 +220,22 @@ void main() {
     vec3 radiance = sun_radiance * max(0.0, dot(sun_dir, vec3(0,1,0)));
 
     vec3 ambient = radiance * g.albedo * ambient_factor;
-    vec3 light = ambient + calc_dir_light(sun_dir, radiance, g);
+    // vec3 light = ambient + calc_dir_light(sun_dir, radiance, g);
+
+    vec3 I = mat3(camera.view) * sun_dir;
+    vec3 N = g.view_normal; // world_normal;
+    vec3 R = -normalize(input.view_pos);
+
+    Skybox sky = make_skybox(sun_dir);
+
+    vec3 light = vec3(0.0);
+    // light += cook_torrance_BRDF(I, N, R, skybox_radiance(sun_dir, sky), mat);
+    // light += cook_torrance_BRDF(N, N, R, skybox_radiance(world_normal, sky), mat);
+
+    vec3 r = reflect(-R, N);
+    light += cook_torrance_BRDF(r, N, R, skybox_radiance(inverse(mat3(camera.view)) * r, sky), mat);
+
+    light = max(vec3(0.0), light);
 
     float sss_factor = 1.0 - exp(-max(0.0, input.world_pos.y));
     float upness = dot(world_normal, vec3(0,1,0));
@@ -252,6 +274,7 @@ void main() {
         color.a = 1.0;
     }
 
-    FragColor = vec4(light, color.a);
+    // FragColor = vec4(light, color.a);
+    FragColor = vec4(light, 1.0);
 }
 #endif

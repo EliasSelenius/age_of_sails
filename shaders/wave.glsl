@@ -2,19 +2,7 @@
 #ifndef WAVE_IMPL
 #define WAVE_IMPL
 
-// =============================================================================
-// FULLY CORRECTED TROCHOIDAL (GERSTNER) WAVE WITH AIRY-BASED SHOALING + NORMAL GRADIENT
-// Everything we discussed is now inside:
-//   • Fixed ω (period is conserved)
-//   • Local k solved from Airy dispersion relation ω² = g k tanh(k h)
-//   • Shoaling coefficient Ks from group velocities (energy flux conservation)
-//   • Local amplitude A_local = A0 * Ks
-//   • Artistic steepness Q (0–1) applied on top
-//   • Standard Gerstner displacement (circular orbits, peaked crests)
-//   • Correct tangent / binormal derivatives for accurate normals
-// =============================================================================
-
-const float G   = 9.81;
+const float G = 9.81;
 
 struct Wave {
     vec2  direction;   // must be normalized
@@ -63,7 +51,7 @@ float wavenumber_guo_approximation(float omega, float h) {
 
 
 // Group velocity cg = n * (ω / k) where n = ½ (1 + 2kh / sinh(2kh))
-float computeGroupVelocity(float k, float h, float omega) {
+float compute_group_velocity(float k, float h, float omega) {
     float kh = k * h;
     float n  = 0.5 * (1.0 + 2.0 * kh / sinh(2.0 * kh));
     return n * (omega / k);
@@ -72,7 +60,7 @@ float computeGroupVelocity(float k, float h, float omega) {
 void trochoidal_wave(Wave wave, vec2 coord, float depth, float time,
                      inout vec3 pos, inout vec3 tangent, inout vec3 binormal)
 {
-    float omega = Tau / wave.period;
+    float omega = Tau / wave.period; // omega, angular frequency, a conserved quantity
 
     // Deep-water reference values (for shoaling coefficient)
     float k0  = omega * omega / G;
@@ -81,9 +69,10 @@ void trochoidal_wave(Wave wave, vec2 coord, float depth, float time,
     // float k = computeLocalK(omega, depth);
     float k = wavenumber_guo_approximation(omega, depth);
 
-    float cg = computeGroupVelocity(k, depth, omega); // Local group velocity
+    float cg = compute_group_velocity(k, depth, omega); // Local group velocity
     float Ks = sqrt(cg0 / cg); // shoaling coefficient
-    if (isnan(Ks)) {
+
+    if (isnan(Ks)) { // at large depths wavenumber_guo_approximation or compute_group_velocity may return NaN
         k = k0;
         Ks = 1.0;
     }
@@ -93,34 +82,12 @@ void trochoidal_wave(Wave wave, vec2 coord, float depth, float time,
     vec2  D   = wave.direction; // presumed already normalized
     float phi = k * dot(D, coord) - omega * time;
 
-    float sinPhi = sin(phi);
-    float cosPhi = cos(phi);
+    float s = sin(phi);
+    float c = cos(phi);
 
-    // displacement (standard Gerstner/trochoidal with shoaling)
-    float horiz = A_local * sinPhi; //  + breakPush;
-    float vert  = A_local * cosPhi; //  * breakFlatten;
-    pos += vec3(horiz, vert, horiz) * vec3(-D.x, 1.0, -D.y);
-
-
-    // tangent / binormal derivatives (for normals)
-    // These are the exact analytic partial derivatives of the displacement above
-    float QAk     = A_local * k;          // common horizontal derivative factor
-    float AkDirX  = A_local * k * D.x;        // vertical derivative factor (x)
-    float AkDirY  = A_local * k * D.y;        // vertical derivative factor (z)
-
-    // tangent = ∂P/∂x
-    tangent += vec3(
-        -D.x * D.x * QAk * cosPhi,   // ∂x/∂x
-        -AkDirX * sinPhi,            // ∂y/∂x
-        -D.x * D.y * QAk * cosPhi    // ∂z/∂x
-    );
-
-    // binormal = ∂P/∂z
-    binormal += vec3(
-        -D.y * D.x * QAk * cosPhi,   // ∂x/∂z
-        -AkDirY * sinPhi,            // ∂y/∂z
-        -D.y * D.y * QAk * cosPhi    // ∂z/∂z
-    );
+    pos      +=  vec3(-D.x, 1.0, -D.y)       * vec3(s, c, s) * A_local;
+    tangent  += -vec3(D.x*D.x, D.x, D.x*D.y) * vec3(c, s, c) * A_local * k;
+    binormal += -vec3(D.y*D.x, D.y, D.y*D.y) * vec3(c, s, c) * A_local * k;
 }
 
 
@@ -158,7 +125,7 @@ void gerstner_wave(float phase_offset, float depth, vec2 coord, vec2 dir, float 
     binormal += vec3(-s, c, -s) * vec3(dir.x * dir.y, dir.y, dir.y * dir.y) * steepness;
 }
 
-uniform float u_amplitude_factor = 0.1;
+uniform float u_amplitude_factor = 0.2;
 void ocean(vec2 coord, float depth, float time, out vec3 out_offset, out vec3 normal) {
     vec3 offset   = vec3(0, 0, 0);
     vec3 tangent  = vec3(1, 0, 0);
@@ -195,7 +162,6 @@ void ocean(vec2 coord, float depth, float time, out vec3 out_offset, out vec3 no
         wave.steepness = 1.0; // Q (artistic 0–1)
 
         trochoidal_wave(wave, coord, depth, time, offset, tangent, binormal);
-
     }
 
 

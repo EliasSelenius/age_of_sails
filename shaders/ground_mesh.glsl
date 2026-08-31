@@ -17,6 +17,8 @@ layout (binding = 1) uniform sampler2D texture_albedo_sand;
 layout (binding = 2) uniform sampler2D texture_albedo_grass;
 layout (binding = 3) uniform sampler2D texture_albedo_cliff;
 
+uniform float u_terrain_metallic  = 0.0;
+uniform float u_terrain_roughness = 0.9;
 
 struct InstanceData {
     mat4 model;
@@ -124,12 +126,14 @@ in FragData_Block frag_input;
 
 void main() {
     FragPos_Metallic.xyz = frag_input.view_pos;
-    FragPos_Metallic.w   = 0;
+    FragPos_Metallic.w   = u_terrain_metallic;
+
+    // normal_from_sampler(tex, frag_input.uv, world_normal);
 
     vec3 normal = normalize(frag_input.normal);
     vec3 view_normal = normalize(frag_input.view_normal);
     FragNormal_Roughness.xyz = view_normal;
-    FragNormal_Roughness.w   = 0.9;
+    FragNormal_Roughness.w   = u_terrain_roughness;
 
 
     vec3 albedo_sand = texture(texture_albedo_sand, frag_input.uv).rgb;

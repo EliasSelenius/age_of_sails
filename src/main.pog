@@ -92,7 +92,7 @@ void mesh_load(char* full_path) {
         obj_to_mesh(obj, mesh, o.indices_length, o.indices_start);
 
         set_origin(mesh, avg_vertex_pos(mesh));
-        gen_normals(mesh);
+        // gen_normals(mesh);
         calc_bounds(mesh);
 
         list_add(*all_meshes, *mesh);
