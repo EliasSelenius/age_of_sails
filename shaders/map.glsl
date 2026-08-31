@@ -30,12 +30,12 @@ void main() {
 
 
 #ifdef FragmentShader // Per Fragment /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-in FragData_Block input;
+in FragData_Block frag_input;
 out vec4 FragColor;
 
 void main() {
 
-    vec2 coord = input.coord;
+    vec2 coord = frag_input.coord;
     vec4 ter = terrain_noise(coord);
     float height = ter.w;
     vec3 normal = ter.xyz;
