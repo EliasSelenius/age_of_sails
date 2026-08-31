@@ -225,7 +225,7 @@ void main() {
 
     vec3 I = mat3(camera.view) * sun_dir;
     vec3 N = g.view_normal; // world_normal;
-    vec3 R = -normalize(input.view_pos);
+    vec3 R = -normalize(frag_input.view_pos);
 
     Skybox sky = make_skybox(sun_dir);
 
@@ -242,6 +242,21 @@ void main() {
     float upness = dot(world_normal, vec3(0,1,0));
     // light *= mix(1.0, 5.0, 1.0 - upness);
 
+
+    vec3 H = normalize(R + r);
+    float HoR = maxdot(H, R);
+    float NoI = maxdot(N, r);
+
+    float n1 = 1;
+    float n2 = 1.333;
+    float R0 = pow((n1 - n2) / (n1 + n2), 2.0);
+    float F  = R0 + (1.0 - R0) * pow(1.0 - HoR, 5.0);
+    float T  = 1.0 - F;
+
+    // light = F * skybox_radiance(inverse(mat3(camera.view)) * r, sky) * NoI;
+
+    float out_alpha = 1.0 - T;
+    // light *= F;
 
     if (gl_FrontFacing) { // atmosphere
 
@@ -271,11 +286,12 @@ void main() {
         vec3 sky_light = skybox_radiance(sky_dir, sky);
 
         // light += sky_light;
-        light += max(vec3(0.0), sky_light);
+        // light += max(vec3(0.0), sky_light);
         color.a = 1.0;
     }
 
     // FragColor = vec4(light, color.a);
-    FragColor = vec4(light, 1.0);
+    // FragColor = vec4(light, 1.0);
+    FragColor = vec4(light, out_alpha);
 }
 #endif

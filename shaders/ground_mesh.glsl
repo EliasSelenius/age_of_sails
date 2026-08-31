@@ -17,8 +17,16 @@ layout (binding = 1) uniform sampler2D texture_albedo_sand;
 layout (binding = 2) uniform sampler2D texture_albedo_grass;
 layout (binding = 3) uniform sampler2D texture_albedo_cliff;
 
+
+#define Poly_Cull   0
+#define Poly_Point  1
+#define Poly_Line   2
+#define Poly_Fill   3
+
+uniform uvec2 u_poly_render_mode = uvec2(Poly_Fill, Poly_Cull);
 uniform float u_terrain_metallic  = 0.0;
 uniform float u_terrain_roughness = 0.9;
+
 
 struct InstanceData {
     mat4 model;
@@ -125,6 +133,11 @@ layout (location = 2) out vec3 FragColor;
 
 in FragData_Block frag_input;
 
+uint polymode() {
+    if (gl_FrontFacing) return u_poly_render_mode.x;
+    return u_poly_render_mode.y;
+}
+
 void main() {
     FragPos_Metallic.xyz = frag_input.view_pos;
     FragPos_Metallic.w   = u_terrain_metallic;
@@ -158,6 +171,10 @@ void main() {
     // FragColor += vec3(contour);
 
     FragColor = mix(FragColor, frag_input.tint.rgb, frag_input.tint.a);
+
+    if (polymode() == Poly_Line) {
+        FragColor = vec3(1,0,0);
+    }
 
     bvec3 na = isnan(FragColor);
     if (na.x || na.y || na.z) {

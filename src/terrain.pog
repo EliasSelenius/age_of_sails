@@ -248,8 +248,27 @@ void render_terrain() {
     bind_texture2D(texture_grass.gl_handle, 2);
     bind_texture2D(texture_cliff.gl_handle, 3);
 
+    set_uniform("u_poly_render_mode", Poly.Fill as uint32, Poly.Cull as uint32);
+
     batch_dispatch(*terrain.batch);
 
+    if key_pressed('Z') {
+        terrain_wireframe = !terrain_wireframe;
+    }
+
+    if terrain_wireframe {
+        // let c = color_to_vec4(chunk.color);
+
+        // vec3[] lod_color = {{1,0,0}, {1,1,0}, {0,1,0}, {0,1,1}, {0,0,1}};
+        // vec3 color = lod_color[lod % lod_color.length];
+
+        // data.albedo_color = make_vec(color, 1.0);
+        // update_ssbo("Instances", *data, sizeof InstanceData);
+        // mesh_draw(mesh, true);
+
+        set_uniform("u_poly_render_mode", Poly.Line as uint32, Poly.Line as uint32);
+        batch_dispatch(*terrain.batch, true);
+    }
 
     if key_toggle('H') return;
 
@@ -280,10 +299,6 @@ void render_terrain() {
     } done:
 
 
-    if key_pressed('Z') {
-        terrain_wireframe = !terrain_wireframe;
-    }
-
     clear_batch(*terrain.batch);
 
     for 0 .. regions_array_size {
@@ -304,17 +319,6 @@ void render_terrain() {
         data.model = make_mat4(make_vec(chunk_pos.x, 0, chunk_pos.y), 1.0);
         // mesh_batch(mesh, data);
         batch_add_instance(*terrain.batch, mesh, data);
-
-        if terrain_wireframe {
-            let c = color_to_vec4(chunk.color);
-
-            vec3[] lod_color = {{1,0,0}, {1,1,0}, {0,1,0}, {0,1,1}, {0,0,1}};
-            vec3 color = lod_color[lod % lod_color.length];
-
-            data.albedo_color = make_vec(color, 1.0);
-            update_ssbo("Instances", *data, sizeof InstanceData);
-            mesh_draw(mesh, true);
-        }
     }
 
     // batch_end();
