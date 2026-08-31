@@ -40,6 +40,28 @@ float computeLocalK(float omega, float h) {
     return max(k, 0.0001);
 }
 
+float coth(float x) {
+    float e = exp(2.0*x);
+    return (e+1)/(e-1);
+}
+
+// float wavenumber_guo_approximation(float omega, float h) {
+//     float mu0 = omega*omega*h/G;
+//     float alpha = sqrt(mu0);
+//     float pcp = pow(coth(pow(alpha, 3.0/2.0)), 2.0/3.0);
+//     float k = omega * omega * pcp / G;
+//     return k;
+// }
+
+float wavenumber_guo_approximation(float omega, float h) {
+    float mu0 = omega*omega*h/G;
+    float pcp = pow(coth(pow(mu0, 3.0/4.0)), 2.0/3.0);
+    float k = omega * omega * pcp / G;
+    return k;
+    // return max(k, 0.0001);
+}
+
+
 // Group velocity cg = n * (ω / k) where n = ½ (1 + 2kh / sinh(2kh))
 float computeGroupVelocity(float k, float h, float omega) {
     float kh = k * h;
@@ -56,10 +78,15 @@ void trochoidal_wave(Wave wave, vec2 coord, float depth, float time,
     float k0  = omega * omega / G;
     float cg0 = 0.5 * (omega / k0);
 
-    float k = computeLocalK(omega, depth);
+    // float k = computeLocalK(omega, depth);
+    float k = wavenumber_guo_approximation(omega, depth);
 
     float cg = computeGroupVelocity(k, depth, omega); // Local group velocity
     float Ks = sqrt(cg0 / cg); // shoaling coefficient
+    if (isnan(Ks)) {
+        k = k0;
+        Ks = 1.0;
+    }
 
     float A_local = wave.amplitude * Ks;
 
@@ -103,6 +130,7 @@ void gerstner_wave(float phase_offset, float depth, vec2 coord, vec2 dir, float 
 
     float g = 9.8;
     float omega = k*sqrt(g/k);
+    // float omega = sqrt(g*k);
 
     /*
         shoaling:
@@ -130,7 +158,7 @@ void gerstner_wave(float phase_offset, float depth, vec2 coord, vec2 dir, float 
     binormal += vec3(-s, c, -s) * vec3(dir.x * dir.y, dir.y, dir.y * dir.y) * steepness;
 }
 
-
+uniform float u_amplitude_factor = 0.1;
 void ocean(vec2 coord, float depth, float time, out vec3 out_offset, out vec3 normal) {
     vec3 offset   = vec3(0, 0, 0);
     vec3 tangent  = vec3(1, 0, 0);
@@ -142,26 +170,32 @@ void ocean(vec2 coord, float depth, float time, out vec3 out_offset, out vec3 no
         vec2 dir = vec2(sin(a), cos(a));
 
 
-        // float st = 0.4 / (i+1);
-        float st = 0.1;
-        // float st = mix(0.1, 0.05, float(i) / (wave_count-1));
+        // // float st = 0.4 / (i+1);
+        // float st = 0.1;
+        // // float st = mix(0.1, 0.05, float(i) / (wave_count-1));
 
-        float wave_len = (i+1) * 4.0; // *10;
+        // float wave_len = (i+1) * 4.0; // *10;
 
-        float scale = smoothstep(0, wave_len/2.0, depth);
+        // float scale = smoothstep(0, wave_len/2.0, depth);
 
-        gerstner_wave(0, depth, coord, dir, st * scale, wave_len, offset, tangent, binormal);
+        // gerstner_wave(0, depth, coord, dir, st * scale, wave_len, offset, tangent, binormal);
 
 
-        /*
+
+
+        float T  = mix(1.5, 20.0, float(i) / (wave_count-1));
+        float L0 = G/Tau * T*T;
+        float scale = smoothstep(0, L0/2.0, depth);
+        float A0 = 1.0/14.0 * L0 * u_amplitude_factor * scale;
+
         Wave wave;
         wave.direction = dir; // must be normalized
-        wave.amplitude = 5.0; // deep-water A0
-        wave.period    = 5.0; // T (seconds) – the conserved quantity
+        wave.amplitude = A0; // 5.0; // deep-water A0
+        wave.period    = T; // 5.0; // T (seconds) – the conserved quantity
         wave.steepness = 1.0; // Q (artistic 0–1)
 
         trochoidal_wave(wave, coord, depth, time, offset, tangent, binormal);
-        */
+
     }
 
 
